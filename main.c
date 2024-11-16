@@ -16,7 +16,6 @@ enum {
 	ESC,
 	PSH, PSS, PSB,
 	POP,
-	ARG, ARP,
 	BNC, BNE, BEQ, BLT, BGT, BLE, BGE,
 	JMP, JNE, JEQ, JLT, JGT, JLE, JGE,
 	INT, INR,
@@ -78,8 +77,6 @@ enum {
 #define PSS_(tar)              PSS, SHORT(tar), 0,
 #define PSB_(tar)              PSB, tar,  0, 0,
 #define POP_(dst)              POP, dst,  0, 0,
-#define ARG_(a, r)             ARG, a,    r, 0,
-#define ARP_(a)                ARP, a,    0, 0,
 #define BNC_(addr)             BNC, addr, 0, 0,
 #define BNE_(addr)             BNE, addr, 0, 0,
 #define BEQ_(addr)             BEQ, addr, 0, 0,
@@ -510,15 +507,15 @@ void interpret(){
 			case RET: {
 					byte tar = NEXT;
 					reg[SP] = reg[FP];
-					POP_REG(REG(FULL,FP))
-					POP_REG(REG(FULL,IP))
+					POP_REG(REG(FULL,FP));
+					POP_REG(REG(FULL,IP));
 					PUSH_REG(tar);
 					reg[IP] += INSTRUCTION_WIDTH;
 				} break;
 			case REI: {
 					reg[SP] = reg[FP];
-					POP_REG(REG(FULL,FP))
-					POP_REG(REG(FULL,IP))
+					POP_REG(REG(FULL,FP));
+					POP_REG(REG(FULL,IP));
 					reg[IP] += INSTRUCTION_WIDTH;
 				} break;
 			case RES: {
@@ -560,18 +557,6 @@ void interpret(){
 					reg[IP] += 3;
 				} break;
 			case POP: { byte tar = NEXT; POP_REG(tar); reg[IP] += 3; } break;
-			case ARG: {
-					byte arg = NEXT;
-					byte tar = NEXT;
-					PUSH_REG(tar);
-					LOAD_REG(arg, reg[SP]+1);
-					reg[IP] += 2;
-				} break;
-			case ARP: {
-					byte arg = NEXT;
-					LOAD_REG(arg, reg[SP]+1);
-					reg[IP] += 3;
-				} break; 
 			case BNC: { BRANCH_LINK; } break;
 			case BNE: {
 					if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0))
@@ -707,26 +692,8 @@ int32_t main(int argc, char** argv){
 		RET_(REG(FULL, R6))
 		NOP_ NOP_ NOP_ NOP_
 	};
-	byte con[] = {
-		LDS_(REG(L16, R3), 0xDEAD)
-		LDS_(REG(LM16, R3), 0xBEEF)
-		LDS_(REG(RM16, R3), 0xFACE)
-		LDS_(REG(R16, R3), 0xCAFE)
-		ARG_(REG(FULL, A0), REG(FULL, R3))
-		PSS_(0xAFFE)
-		ARP_(REG(FULL, A1))
-		LDS_(REG(FULL, R0), 0x22c)
-		BNC_(REG(FULL, R0))
-		POP_(REG(FULL, R7))
-		NOP_
-		LDI_(REG(FULL, R0), REG(FULL, A0), 0)
-		LDI_(REG(R16, R1), REG(FULL, A1), 0)
-		XOR_(REG(FULL, R2), REG(FULL, R0), REG(FULL, R1))
-		RET_(REG(FULL, R2))
-		NOP_ NOP_ NOP_ NOP_
-	};
 	setup_registers();
-	flash_rom(con, 1+(64*INSTRUCTION_WIDTH));
+	flash_rom(rom, 1+(64*INSTRUCTION_WIDTH));
 	interpret();
 	return 0;
 }
