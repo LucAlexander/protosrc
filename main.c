@@ -16,6 +16,7 @@ enum {
 	ESC,
 	PSH, PSS, PSB,
 	POP,
+	ARG, ARP,
 	BNC, BNE, BEQ, BLT, BGT, BLE, BGE,
 	JMP, JNE, JEQ, JLT, JGT, JLE, JGE,
 	INT, INR,
@@ -77,6 +78,8 @@ enum {
 #define PSS_(tar)              PSS, SHORT(tar), 0,
 #define PSB_(tar)              PSB, tar,  0, 0,
 #define POP_(dst)              POP, dst,  0, 0,
+#define ARG_(a, r)             ARG, a,    r, 0,
+#define ARP_(a)                ARP, a,    0, 0,
 #define BNC_(addr)             BNC, addr, 0, 0,
 #define BNE_(addr)             BNE, addr, 0, 0,
 #define BEQ_(addr)             BEQ, addr, 0, 0,
@@ -227,6 +230,29 @@ void show_machine(){
 		break;\
 	default:\
 		*quar[(r*4)+partition] = v;\
+		break;\
+	}\
+}
+
+#define LOAD_REG_ADDR(b, v)\
+{\
+	byte r = b&0xF;\
+	byte partition = (b&0x70) >> 4;\
+	switch (partition){\
+	case FULL:\
+		reg[r] = *(word*)(&mem[v]);\
+		break;\
+	case HALF:\
+		*half[r] = *(uint32_t*)(&mem[v]);\
+		break;\
+	case LO:\
+		*lo[r] = mem[v];\
+		break;\
+	case HI:\
+		*hi[r] = mem[v];\
+		break;\
+	default:\
+		*quar[(r*4)+partition] = *(uint16_t*)(&mem[v]);\
 		break;\
 	}\
 }
@@ -410,12 +436,12 @@ void interpret(){
 					byte dst = NEXT; byte adr = NEXT; byte off = NEXT;
 					word a; ACCESS_REG(a, adr);
 					word o; ACCESS_REG(o, off);
-					LOAD_REG(dst, mem[a+o]); reg[IP] += 1;
+					LOAD_REG_ADDR(dst, a+o); reg[IP] += 1;
 				} break;
 			case LDI: {
 					byte dst = NEXT; byte adr = NEXT; byte off = NEXT;
 					word a; ACCESS_REG(a, adr);
-					LOAD_REG(dst, mem[a+off]); reg[IP] += 1;
+					LOAD_REG_ADDR(dst, a+off); reg[IP] += 1;
 				} break;
 			case STS: { byte src = NEXT; uint16_t adr = SHORT_LITERAL; STORE_REG(adr, src); reg[IP] += 1; } break;
 			case STA: {
@@ -534,6 +560,18 @@ void interpret(){
 					reg[IP] += 3;
 				} break;
 			case POP: { byte tar = NEXT; POP_REG(tar); reg[IP] += 3; } break;
+			case ARG: {
+					byte arg = NEXT;
+					byte tar = NEXT;
+					PUSH_REG(tar);
+					LOAD_REG(arg, reg[SP]+1);
+					reg[IP] += 2;
+				} break;
+			case ARP: {
+					byte arg = NEXT;
+					LOAD_REG(arg, reg[SP]+1);
+					reg[IP] += 3;
+				} break; 
 			case BNC: { BRANCH_LINK; } break;
 			case BNE: {
 					if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0))
@@ -592,16 +630,14 @@ void interpret(){
 				} break;
 			case INT: { reg[IP] += INSTRUCTION_WIDTH; } break;
 			case INR: { reg[IP] += INSTRUCTION_WIDTH; } break;
+			default:
+				printf("Uknown upcode\n");
+				return;
 		}
 	}
 }
 
-void flash_rom(byte* buffer, uint64_t size){
-	for (uint64_t i = 0;i<size;++i){
-		mem[PROGRAM_START+i] = buffer[i];
-	}
-}
-int32_t main(int argc, char** argv){
+void setup_registers(){
 	for (uint8_t r = 0;r<REGISTER_COUNT;++r){
 		for (uint8_t i = 0;i<4;++i){
 			quar[(r*4)+i] = (uint16_t*)(&reg[r])+(3-i);
@@ -613,6 +649,15 @@ int32_t main(int argc, char** argv){
 	reg[SP] = MEMORY_SIZE-1;
 	reg[FP] = MEMORY_SIZE-1;
 	reg[IP] = PROGRAM_START;
+}
+
+void flash_rom(byte* buffer, uint64_t size){
+	for (uint64_t i = 0;i<size;++i){
+		mem[PROGRAM_START+i] = buffer[i];
+	}
+}
+
+int32_t main(int argc, char** argv){
 	byte rom[] = {
 		LDS_(REG(FULL, R7), 0x210)
 		BNC_(REG(FULL, R7))
@@ -662,7 +707,26 @@ int32_t main(int argc, char** argv){
 		RET_(REG(FULL, R6))
 		NOP_ NOP_ NOP_ NOP_
 	};
-	flash_rom(rom, 1+(64*INSTRUCTION_WIDTH));
+	byte con[] = {
+		LDS_(REG(L16, R3), 0xDEAD)
+		LDS_(REG(LM16, R3), 0xBEEF)
+		LDS_(REG(RM16, R3), 0xFACE)
+		LDS_(REG(R16, R3), 0xCAFE)
+		ARG_(REG(FULL, A0), REG(FULL, R3))
+		PSS_(0xAFFE)
+		ARP_(REG(FULL, A1))
+		LDS_(REG(FULL, R0), 0x22c)
+		BNC_(REG(FULL, R0))
+		POP_(REG(FULL, R7))
+		NOP_
+		LDI_(REG(FULL, R0), REG(FULL, A0), 0)
+		LDI_(REG(R16, R1), REG(FULL, A1), 0)
+		XOR_(REG(FULL, R2), REG(FULL, R0), REG(FULL, R1))
+		RET_(REG(FULL, R2))
+		NOP_ NOP_ NOP_ NOP_
+	};
+	setup_registers();
+	flash_rom(con, 1+(64*INSTRUCTION_WIDTH));
 	interpret();
 	return 0;
 }
