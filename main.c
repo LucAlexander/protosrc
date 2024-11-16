@@ -63,7 +63,7 @@ enum {
 #define SHR_(dst, left, right) SHR, dst,  left, right,
 #define XOR_(dst, left, right) XOR, dst,  left, right,
 #define INV_(dst, src)         INV, dst,  src, 0,
-#define COM_(dst, src)         COM, dst,  src 0,
+#define COM_(dst, src)         COM, dst,  src, 0,
 #define INI_(dst)              INI, dst,  0, 0,
 #define COI_(dst)              COI, dst,  0, 0,
 #define CMP_(left, right)      CMP, left, right, 0,
@@ -84,13 +84,13 @@ enum {
 #define BGT_(addr)             BGT, addr, 0, 0,
 #define BLE_(addr)             BLE, addr, 0, 0,
 #define BGE_(addr)             BGE, addr, 0, 0,
-#define JMP_(off)              JMP, SHORT(off),
-#define JNE_(off)              JNE, SHORt(off),
-#define JEQ_(off)              JEQ, SHORT(off),
-#define JLT_(off)              JLT, SHORT(off),
-#define JGT_(off)              JGT, SHORT(off),
-#define JLE_(off)              JLE, SHORT(off),
-#define JGE_(off)              JGE, SHORT(off),
+#define JMP_(off)              JMP, SHORT(off), 0,
+#define JNE_(off)              JNE, SHORT(off), 0,
+#define JEQ_(off)              JEQ, SHORT(off), 0,
+#define JLT_(off)              JLT, SHORT(off), 0,
+#define JGT_(off)              JGT, SHORT(off), 0,
+#define JLE_(off)              JLE, SHORT(off), 0,
+#define JGE_(off)              JGE, SHORT(off), 0,
 #define INT_(b)                INT, b,    0, 0,
 #define INR_(en)               INR, en,   0, 0,
 
@@ -136,10 +136,10 @@ byte* hi[REGISTER_COUNT];
 byte mem[MEMORY_SIZE];
 
 #define SHOW_REG(r)\
-	printf("                   %s: %016lx (%lu) (%ld)\n\033[0m\033[1m", #r, reg[r], reg[r], reg[r]);
+	printf("                                   %s: %016lx (%lu) (%ld)\n\033[0m\033[1m", #r, reg[r], reg[r], reg[r]);
 
 void show_registers(){
-	printf("                   \033[4mCPU Registers\033[0m\n");
+	printf("                                   \033[4mCPU Registers\033[0m\n");
 	printf("\033[1;32m");
 	SHOW_REG(IP);
 	printf("\033[1;33m");
@@ -167,28 +167,34 @@ void show_registers(){
 void show_mem(){
 	printf("\033[4mProgram / Stack\033[0m\n");
 	printf("\033[1;32m");
-	for (byte i = 0;i<INSTRUCTION_WIDTH*8;++i){
-		printf("%02x ", mem[reg[IP]+i]);
-		if ((i+1) % 4 == 0){
-			printf("\033[0m\033[1m\n");
+	for (byte i = 0;i<INSTRUCTION_WIDTH*8;){
+		printf("%016lx | ", reg[IP]+i);
+		byte m = i+4;
+		for (;i<m;++i){
+			printf("%02x \033[0m\033[1m", mem[reg[IP]+i]);
 		}
+		printf("\033[0m\033[1m\n");
 	}
-	printf("...\n");
+	printf("...              | ...\n");
+	word left = reg[SP];
+	while ((left--) % 4 != 1){}
 	word bottom = MEMORY_SIZE;
-	if (reg[SP] < bottom-INSTRUCTION_WIDTH*8){
-		bottom -= INSTRUCTION_WIDTH*8;
+	if (reg[SP] < bottom-INSTRUCTION_WIDTH*24){
+		bottom = reg[SP] + INSTRUCTION_WIDTH*24;
 	}
-	for (word i = reg[SP]-4;i<bottom;++i){
-		if (i == reg[SP]){
-			printf("\033[1;33m");
+	for (word i = left;i<bottom;){
+		word m = i+4;
+		printf("%016lx | ", i);
+		for (;i<m;++i){
+			if (i == reg[SP]){
+				printf("\033[1;33m");
+			}
+			else if (i == reg[FP]){
+				printf("\033[1;31m");
+			}
+			printf("%02x \033[0m\033[1m", mem[i]);
 		}
-		else if (i == reg[FP]){
-			printf("\033[1;31m");
-		}
-		printf("%02x ", mem[i]);
-		if ((i+1) % 4 == 0){
-			printf("\033[0m\033[1m\n");
-		}
+		printf("\033[0m\033[1m\n");
 	}
 }
 
@@ -207,16 +213,16 @@ void show_machine(){
 	byte r = b&0xF;\
 	byte partition = (b&0x70) >> 4;\
 	switch (partition){\
-	case 4:\
+	case FULL:\
 		reg[r] = v;\
 		break;\
-	case 5:\
+	case HALF:\
 		*half[r] = v;\
 		break;\
-	case 6:\
+	case LO:\
 		*lo[r] = v;\
 		break;\
-	case 7:\
+	case HI:\
 		*hi[r] = v;\
 		break;\
 	default:\
@@ -230,16 +236,16 @@ void show_machine(){
 	byte r = b&0xF;\
 	byte partition = (b&0x70) >> 4;\
 	switch (partition){\
-	case 4:\
+	case FULL:\
 		v = reg[r];\
 		break;\
-	case 5:\
+	case HALF:\
 		v = *half[r];\
 		break;\
-	case 6:\
+	case LO:\
 		v = *lo[r];\
 		break;\
-	case 7:\
+	case HI:\
 		v = *hi[r];\
 		break;\
 	default:\
@@ -253,16 +259,16 @@ void show_machine(){
 	byte r = b&0xF;\
 	byte partition = (b&0x70) >> 4;\
 	switch (partition){\
-	case 4:\
+	case FULL:\
 		*(word*)(&mem[a]) = reg[r];\
 		break;\
-	case 5:\
+	case HALF:\
 		*(uint32_t*)(&mem[a]) = *half[r];\
 		break;\
-	case 6:\
+	case LO:\
 		*(byte*)(&mem[a]) = *lo[r];\
 		break;\
-	case 7:\
+	case HI:\
 		*(byte*)(&mem[a]) = *hi[r];\
 		break;\
 	default:\
@@ -276,25 +282,28 @@ void show_machine(){
 	byte r = b&0xF;\
 	byte partition = (b&0x70) >> 4;\
 	switch(partition){\
-	case 4:\
-		reg[SP] -= sizeof(word);\
+	case FULL:\
+		reg[SP] -= (sizeof(word)-1);\
 		*(word*)(&mem[reg[SP]]) = reg[r];\
+		reg[SP] -= 1;\
 		break;\
-	case 5:\
-		reg[SP] -= 4;\
+	case HALF:\
+		reg[SP] -= 3;\
 		*(uint32_t*)(&mem[reg[SP]]) = *half[r];\
-		break;\
-	case 6:\
 		reg[SP] -= 1;\
+		break;\
+	case LO:\
 		*(byte*)(&mem[reg[SP]]) = *lo[r];\
-		break;\
-	case 7:\
 		reg[SP] -= 1;\
+		break;\
+	case HI:\
 		*(byte*)(&mem[reg[SP]]) = *hi[r];\
+		reg[SP] -= 1;\
 		break;\
 	default:\
-		reg[SP] -= 2;\
+		reg[SP] -= 1;\
 		*(uint16_t*)(&mem[reg[SP]]) = *quar[(r*4)+partition];\
+		reg[SP] -= 1;\
 		break;\
 	}\
 }
@@ -304,25 +313,28 @@ void show_machine(){
 	byte r = b&0xF;\
 	byte partition = (b&0x70) >> 4;\
 	switch(partition){\
-	case 4:\
+	case FULL:\
+		reg[SP] += 1;\
 		reg[r] = *(word*)(&mem[reg[SP]]);\
-		reg[SP] += sizeof(word);\
+		reg[SP] += sizeof(word)-1;\
 		break;\
-	case 5:\
+	case HALF:\
+		reg[SP] += 1;\
 		*half[r] = *(uint32_t*)(&mem[reg[SP]]);\
-		reg[SP] += 4;\
+		reg[SP] += 3;\
 		break;\
-	case 6:\
+	case LO:\
+		reg[SP] += 1;\
 		*lo[r] = *(byte*)(&mem[reg[SP]]);\
-		reg[SP] += 1;\
 		break;\
-	case 7:\
-		*hi[r] = *(byte*)(&mem[reg[SP]]);\
+	case HI:\
 		reg[SP] += 1;\
+		*hi[r] = *(byte*)(&mem[reg[SP]]);\
 		break;\
 	default:\
+		reg[SP] += 1;\
 		*quar[(r*4)+partition] = *(uint16_t*)(&mem[reg[SP]]);\
-		reg[SP] += 2;\
+		reg[SP] += 1;\
 		break;\
 	}\
 }
@@ -377,6 +389,13 @@ void show_machine(){
 		reg[SR] &= ~ZERO; \
 		reg[SR] &= ~CARRY;\
 	}
+
+#define BRANCH_LINK\
+	PUSH_REG(REG(FULL, IP));\
+	PUSH_REG(REG(FULL, FP));\
+	reg[FP] = reg[SP];\
+	byte adr = NEXT;\
+	ACCESS_REG(reg[IP], adr);
 
 void interpret(){
 	while (1){
@@ -481,8 +500,9 @@ void interpret(){
 					reg[SP] = reg[FP];
 					POP_REG(REG(FULL,FP))
 					POP_REG(REG(FULL,IP))
-					reg[SP] -= 2;
+					reg[SP] -= 1;
 					*(uint16_t*)(&mem[reg[SP]]) = tar;
+					reg[SP] -= 1;
 					reg[IP] += INSTRUCTION_WIDTH;
 				} break;
 			case REB: {
@@ -490,8 +510,8 @@ void interpret(){
 					reg[SP] = reg[FP];
 					POP_REG(REG(FULL,FP))
 					POP_REG(REG(FULL,IP))
-					reg[SP] -= 1;
 					*(byte*)(&mem[reg[SP]]) = tar;
+					reg[SP] -= 1;
 					reg[IP] += INSTRUCTION_WIDTH;
 				} break;
 			case ESC: {
@@ -502,77 +522,72 @@ void interpret(){
 			case PSH: { byte tar = NEXT; PUSH_REG(tar); reg[IP] += 3; } break;
 			case PSS: {
 					uint16_t lit = SHORT_LITERAL;
-					reg[SP] -= 2;
+					reg[SP] -= 1;
 					*(uint16_t*)(&mem[reg[SP]]) = lit;
+					reg[SP] -= 1;
 					reg[IP] += 2;
 				} break;
 			case PSB: {
 					byte b = NEXT;
-					reg[SP] -= 1;
 					*(byte*)(&mem[reg[SP]]) = b;
+					reg[SP] -= 1;
 					reg[IP] += 3;
 				} break;
 			case POP: { byte tar = NEXT; POP_REG(tar); reg[IP] += 3; } break;
-			case BNC: { byte adr = NEXT; ACCESS_REG(reg[IP], adr);} break;
+			case BNC: { BRANCH_LINK; } break;
 			case BNE: {
 					if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0))
-					{ byte adr = NEXT; ACCESS_REG(reg[IP], adr); }
-					else { reg[IP] += INSTRUCTION_WIDTH; }
+					{ BRANCH_LINK; } else { reg[IP] += INSTRUCTION_WIDTH; }
 				} break;
 			case BEQ: {
 					if (((reg[SR] & ZERO) != 0) && ((reg[SR] & CARRY) == 0))
-					{ byte adr = NEXT; ACCESS_REG(reg[IP], adr); }
-					else { reg[IP] += INSTRUCTION_WIDTH; }
+					{ BRANCH_LINK; } else { reg[IP] += INSTRUCTION_WIDTH; }
 				} break;
 			case BLT: {
 					if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) != 0))
-					{ byte adr = NEXT; ACCESS_REG(reg[IP], adr); }
-					else { reg[IP] += INSTRUCTION_WIDTH; }
+					{ BRANCH_LINK; } else { reg[IP] += INSTRUCTION_WIDTH; }
 				} break;
 			case BGT: {
 					if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) == 0))
-					{ byte adr = NEXT; ACCESS_REG(reg[IP], adr); }
-					else { reg[IP] += INSTRUCTION_WIDTH; }
+					{ BRANCH_LINK; } else { reg[IP] += INSTRUCTION_WIDTH; }
 				} break;
 			case BLE: {
 					if ((reg[SR] & ZERO) != (reg[SR] & CARRY))
-					{ byte adr = NEXT; ACCESS_REG(reg[IP], adr); }
-					else { reg[IP] += INSTRUCTION_WIDTH; }
+					{ BRANCH_LINK; } else { reg[IP] += INSTRUCTION_WIDTH; }
 				} break;
 			case BGE: {
 					if ((reg[SR] & CARRY) == 0)
-					{ byte adr = NEXT; ACCESS_REG(reg[IP], adr); }
-					else { reg[IP] += INSTRUCTION_WIDTH; }
+					{ BRANCH_LINK; } else { reg[IP] += INSTRUCTION_WIDTH; }
 				} break;
-			case JMP: { int16_t off = SHORT_LITERAL; reg[IP] += off; }
+			case JMP: { int16_t off = SHORT_LITERAL; reg[IP] += (off-2); } break;
 			case JNE: {
 					if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0))
-					{ int16_t off = SHORT_LITERAL; reg[IP] += off; }
+					{ int16_t off = SHORT_LITERAL; reg[IP] += (off-2); }
 					else { reg[IP] += INSTRUCTION_WIDTH; }
 				} break;
 			case JEQ: {
 					if (((reg[SR] & ZERO) != 0) && ((reg[SR] & CARRY) == 0))
-					{ int16_t off = SHORT_LITERAL; reg[IP] += off; }
+					{ int16_t off = SHORT_LITERAL; reg[IP] += (off-2); }
 					else { reg[IP] += INSTRUCTION_WIDTH; }
 				} break;
 			case JLT: {
 					if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) != 0))
-					{ int16_t off = SHORT_LITERAL; reg[IP] += off; }
+					{ int16_t off = SHORT_LITERAL; reg[IP] += (off-2); }
 					else { reg[IP] += INSTRUCTION_WIDTH; }
 				} break;
 			case JGT: {
 					if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) == 0))
-					{ int16_t off = SHORT_LITERAL; reg[IP] += off; }
+					{ int16_t off = SHORT_LITERAL; reg[IP] += (off-2); }
 					else { reg[IP] += INSTRUCTION_WIDTH; }
 				} break;
 			case JLE: {
 					if ((reg[SR] & ZERO) != (reg[SR] & CARRY))
-					{ int16_t off = SHORT_LITERAL; reg[IP] += off; }
+					{ int16_t off = SHORT_LITERAL; reg[IP] += (off-2); }
 					else { reg[IP] += INSTRUCTION_WIDTH; }
 				} break;
 			case JGE: {
 					if ((reg[SR] & CARRY) == 0)
-					{ int16_t off = SHORT_LITERAL; reg[IP] += off; }
+					{ int16_t off = SHORT_LITERAL; reg[IP] += (off-2); }
 					else { reg[IP] += INSTRUCTION_WIDTH; }
 				} break;
 			case INT: { reg[IP] += INSTRUCTION_WIDTH; } break;
@@ -589,22 +604,65 @@ void flash_rom(byte* buffer, uint64_t size){
 int32_t main(int argc, char** argv){
 	for (uint8_t r = 0;r<REGISTER_COUNT;++r){
 		for (uint8_t i = 0;i<4;++i){
-			quar[i] = (uint16_t*)(&reg[r])+i;
+			quar[(r*4)+i] = (uint16_t*)(&reg[r])+(3-i);
 		}
-		half[r] = (uint32_t*)(&reg[r])+4;
-		lo[r] = (byte*)(&reg[r])+7;
-		hi[r] = (byte*)(&reg[r])+6;
+		half[r] = (uint32_t*)(&reg[r]);
+		lo[r] = (byte*)(&reg[r]);
+		hi[r] = (byte*)(&reg[r])+1;
 	}
-	reg[SP] = MEMORY_SIZE;
-	reg[FP] = MEMORY_SIZE;
+	reg[SP] = MEMORY_SIZE-1;
+	reg[FP] = MEMORY_SIZE-1;
 	reg[IP] = PROGRAM_START;
 	byte rom[] = {
+		LDS_(REG(FULL, R7), 0x210)
+		BNC_(REG(FULL, R7))
+		POP_(REG(L16, R2))
+		NOP_
 		LDS_(REG(FULL, R0), 0xCAFE)
 		LDS_(REG(FULL, R1), 0xDEAD)
-		ADD_(REG(FULL, R1), REG(FULL, R0), REG(FULL, R1))
-		0
+		LDB_(REG(LO, R2), 0xFE)
+		LDB_(REG(HI, R2), 0xAF)
+		LDS_(REG(L16, R3), 0xDEAD)
+		LDS_(REG(LM16, R3), 0xBEEF)
+		LDS_(REG(RM16, R3), 0xDEAF)
+		LDS_(REG(R16, R3), 0xCAFE)
+		LDS_(REG(HALF, R4), 0x1337)
+		MOV_(REG(HALF, R4), REG(FULL, R3))
+		LDB_(REG(FULL, R6), 0x1)
+		ADD_(REG(FULL, R5), REG(HALF, R2), REG(FULL, R6))
+		ADS_(REG(FULL, R5), 0x2)
+		ADI_(REG(FULL, R6), REG(FULL, R6))
+		INI_(REG(FULL, R6))
+		COI_(REG(FULL, R6))
+		COM_(REG(HI, R6), REG(LO, R6))
+		INV_(REG(LO, R6), REG(HI, R6))
+		CMP_(REG(LO, R5), REG(LO, R6))
+		JNE_(-INSTRUCTION_WIDTH)
+		JEQ_(INSTRUCTION_WIDTH*4)
+		CMP_(REG(LO, R6), REG(HI, R6))
+		JLE_(-INSTRUCTION_WIDTH)
+		JGT_(INSTRUCTION_WIDTH*4)
+		CMS_(REG(R16, R2), 0xbaff)
+		JGE_(-INSTRUCTION_WIDTH)
+		JLT_(INSTRUCTION_WIDTH*-5)
+		PSH_(REG(FULL, R3))
+		PSS_(0x1337)
+		PSS_(0xC0DE)
+		PSB_(0xAB)
+		PSB_(0xCD)
+		PSB_(0xEF)
+		PSB_(0x64)
+		POP_(REG(FULL, R0))
+		POP_(REG(FULL, R1))
+		LDS_(REG(FULL, R2), 688)
+		BNC_(REG(FULL, R2))
+		POP_(REG(FULL, R3))
+		RES_(0xFACE)
+		PSH_(REG(FULL, R6))
+		RET_(REG(FULL, R6))
+		NOP_ NOP_ NOP_ NOP_
 	};
-	flash_rom(rom, 13);
+	flash_rom(rom, 1+(64*INSTRUCTION_WIDTH));
 	interpret();
 	return 0;
 }
