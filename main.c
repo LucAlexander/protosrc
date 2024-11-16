@@ -616,7 +616,7 @@ void interpret(){
 			case INT: { reg[IP] += INSTRUCTION_WIDTH; } break;
 			case INR: { reg[IP] += INSTRUCTION_WIDTH; } break;
 			default:
-				printf("Uknown upcode\n");
+				printf("Unknown upcode\n");
 				return;
 		}
 	}
@@ -692,8 +692,23 @@ int32_t main(int argc, char** argv){
 		RET_(REG(FULL, R6))
 		NOP_ NOP_ NOP_ NOP_
 	};
+	byte cc[] = {
+		LDS_(REG(L16, R3), 0xDEAD)
+		LDS_(REG(LM16, R3), 0xBEEF)
+		LDS_(REG(RM16, R3), 0xFACE)
+		LDS_(REG(R16, R3), 0xCAFE)
+		PSH_(REG(FULL, R3))
+		LDS_(REG(FULL, R2), 0x224)
+		BNC_(REG(FULL, R2))
+		POP_(REG(FULL, R0))
+		NOP_
+		LDI_(REG(FULL, R1), REG(FULL, FP), 0x11)
+		RET_(REG(FULL, R1))
+		NOP_ NOP_ NOP_ NOP_
+	};
 	setup_registers();
-	flash_rom(rom, 1+(64*INSTRUCTION_WIDTH));
+	flash_rom(cc, 1+(64*INSTRUCTION_WIDTH));
 	interpret();
 	return 0;
 }
+
