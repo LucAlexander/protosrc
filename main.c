@@ -95,9 +95,8 @@ enum {
 #define INR_(en)               INR, en,   0, 0,
 
 enum {
-	IP, SP, FP, SR,
-	R0, R1, R2, R3, R4, R5, R6, R7,
-	A0, A1, A2, A3,
+	IP, SP, FP, SR, LR,
+	R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, RA,
 	REGISTER_COUNT
 } REGISTER;
 
@@ -147,6 +146,7 @@ void show_registers(){
 	printf("\033[1;31m");
 	SHOW_REG(FP);
 	SHOW_REG(SR);
+	SHOW_REG(LR);
 	printf("\n");
 	SHOW_REG(R0);
 	SHOW_REG(R1);
@@ -156,11 +156,9 @@ void show_registers(){
 	SHOW_REG(R5);
 	SHOW_REG(R6);
 	SHOW_REG(R7);
-	printf("\n");
-	SHOW_REG(A0);
-	SHOW_REG(A1);
-	SHOW_REG(A2);
-	SHOW_REG(A3);
+	SHOW_REG(R8);
+	SHOW_REG(R9);
+	SHOW_REG(RA);
 	printf("\n");
 }
 
@@ -698,10 +696,17 @@ int32_t main(int argc, char** argv){
 		LDS_(REG(RM16, R3), 0xFACE)
 		LDS_(REG(R16, R3), 0xCAFE)
 		PSH_(REG(FULL, R3))
-		LDS_(REG(FULL, R2), 0x224)
-		BNC_(REG(FULL, R2))
+		LDS_(REG(FULL, LR), 0x224)
+		BNC_(REG(FULL, LR))
 		POP_(REG(FULL, R0))
 		NOP_
+		LDI_(REG(FULL, R1), REG(FULL, FP), 0x11)
+		LDS_(REG(L16, R4), 0xBEEF)
+		LDS_(REG(LM16, R4), 0xCAFE)
+		LDS_(REG(RM16, R4), 0xDEAF)
+		LDS_(REG(R16, R4), 0xFACE)
+		XOR_(REG(FULL, R2), REG(FULL, R1), REG(FULL, R4))
+		STB_(REG(FULL, R2), REG(FULL, FP), 0x11)
 		LDI_(REG(FULL, R1), REG(FULL, FP), 0x11)
 		RET_(REG(FULL, R1))
 		NOP_ NOP_ NOP_ NOP_
