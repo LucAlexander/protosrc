@@ -64,20 +64,20 @@ MAP_IMPL(REG_PARTITION)
 #define PSS_(tar)              PSS, SHORT(tar), 0
 #define PSB_(tar)              PSB, tar,  0, 0
 #define POP_(dst)              POP, dst,  0, 0
-#define BNC_(addr)             BNC, addr, 0, 0
-#define BNE_(addr)             BNE, addr, 0, 0
-#define BEQ_(addr)             BEQ, addr, 0, 0
-#define BLT_(addr)             BLT, addr, 0, 0
-#define BGT_(addr)             BGT, addr, 0, 0
-#define BLE_(addr)             BLE, addr, 0, 0
-#define BGE_(addr)             BGE, addr, 0, 0
-#define JMP_(off)              JMP, SHORT(off), 0
-#define JNE_(off)              JNE, SHORT(off), 0
-#define JEQ_(off)              JEQ, SHORT(off), 0
-#define JLT_(off)              JLT, SHORT(off), 0
-#define JGT_(off)              JGT, SHORT(off), 0
-#define JLE_(off)              JLE, SHORT(off), 0
-#define JGE_(off)              JGE, SHORT(off), 0
+#define BNC_(mode, addr)       BNC, mode, SHORT(addr)
+#define BNE_(mode, addr)       BNE, mode, SHORT(addr)
+#define BEQ_(mode, addr)       BEQ, mode, SHORT(addr)
+#define BLT_(mode, addr)       BLT, mode, SHORT(addr)
+#define BGT_(mode, addr)       BGT, mode, SHORT(addr)
+#define BLE_(mode, addr)       BLE, mode, SHORT(addr)
+#define BGE_(mode, addr)       BGE, mode, SHORT(addr)
+#define JMP_(mode, off)        JMP, mode, SHORT(off)
+#define JNE_(mode, off)        JNE, mode, SHORT(off)
+#define JEQ_(mode, off)        JEQ, mode, SHORT(off)
+#define JLT_(mode, off)        JLT, mode, SHORT(off)
+#define JGT_(mode, off)        JGT, mode, SHORT(off)
+#define JLE_(mode, off)        JLE, mode, SHORT(off)
+#define JGE_(mode, off)        JGE, mode, SHORT(off)
 #define INT_(b)                INT, b,    0, 0
 #define INR_(en)               INR, en,   0, 0
 
@@ -372,11 +372,22 @@ void show_machine(){
 	}
 
 #define BRANCH_LINK\
+	reg[IP] -= 1;\
 	PUSH_REG(REG(FULL, IP));\
 	PUSH_REG(REG(FULL, FP));\
 	reg[FP] = reg[SP];\
+	reg[IP] += 2;\
 	byte adr = NEXT;\
 	ACCESS_REG(reg[IP], adr);
+
+#define JUMP_REG\
+	byte adr = NEXT;\
+	ACCESS_REG(reg[IP], adr);
+
+#define JUMP\
+	int16_t offset = SHORT_LITERAL;\
+	printf("%08lx\n", reg[IP] + (offset-3));\
+	reg[IP] += (offset-3);
 
 void interpret(){
 	while (1){
@@ -515,60 +526,72 @@ void interpret(){
 				reg[IP] += 3;
 			} break;
 		case POP: { byte tar = NEXT; POP_REG(tar); reg[IP] += 3; } break;
-		case BNC: { BRANCH_LINK; } break;
+		case BNC: {
+				byte mode = NEXT;
+				if (mode == 0) { BRANCH_LINK; } else { JUMP; }
+			} break;
 		case BNE: {
 				if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0))
-				{ BRANCH_LINK; } else { reg[IP] += INSTRUCTION_WIDTH; }
+				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { JUMP; }}
+				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case BEQ: {
 				if (((reg[SR] & ZERO) != 0) && ((reg[SR] & CARRY) == 0))
-				{ BRANCH_LINK; } else { reg[IP] += INSTRUCTION_WIDTH; }
+				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { JUMP; }}
+				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case BLT: {
 				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) != 0))
-				{ BRANCH_LINK; } else { reg[IP] += INSTRUCTION_WIDTH; }
+				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { JUMP; }}
+				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case BGT: {
 				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) == 0))
-				{ BRANCH_LINK; } else { reg[IP] += INSTRUCTION_WIDTH; }
+				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { JUMP; }}
+				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case BLE: {
 				if ((reg[SR] & ZERO) != (reg[SR] & CARRY))
-				{ BRANCH_LINK; } else { reg[IP] += INSTRUCTION_WIDTH; }
+				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { JUMP; }}
+				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case BGE: {
 				if ((reg[SR] & CARRY) == 0)
-				{ BRANCH_LINK; } else { reg[IP] += INSTRUCTION_WIDTH; }
+				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { JUMP; }}
+				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
-		case JMP: { int16_t off = SHORT_LITERAL; reg[IP] += (off-2); } break;
+		case JMP: {
+				byte mode = NEXT;
+				if (mode == 0) { JUMP_REG; } else { JUMP; }
+			} break;
 		case JNE: {
 				if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0))
-				{ int16_t off = SHORT_LITERAL; reg[IP] += (off-2); }
+				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
 				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case JEQ: {
 				if (((reg[SR] & ZERO) != 0) && ((reg[SR] & CARRY) == 0))
-				{ int16_t off = SHORT_LITERAL; reg[IP] += (off-2); }
+				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
 				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case JLT: {
 				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) != 0))
-				{ int16_t off = SHORT_LITERAL; reg[IP] += (off-2); }
+				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
 				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case JGT: {
 				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) == 0))
-				{ int16_t off = SHORT_LITERAL; reg[IP] += (off-2); }
+				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
 				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case JLE: {
 				if ((reg[SR] & ZERO) != (reg[SR] & CARRY))
-				{ int16_t off = SHORT_LITERAL; reg[IP] += (off-2); }
+				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
 				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case JGE: {
 				if ((reg[SR] & CARRY) == 0)
-				{ int16_t off = SHORT_LITERAL; reg[IP] += (off-2); }
+				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
 				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case INT: { reg[IP] += INSTRUCTION_WIDTH; } break;
@@ -873,6 +896,16 @@ byte parse_full_register(compiler* const comp){
 	byte c = parse_full_register(comp);\
 	byte b = parse_byte(comp);\
 	WRITE_INSTRUCTION({opc(a, c, b)});
+#define PARSE_BRANCH(opc)\
+	if (comp->str.text[comp->str.i] == '0'){\
+		int16_t s = parse_short(comp);\
+		WRITE_INSTRUCTION({opc(1, s)});\
+	}\
+	else{\
+		byte a = parse_full_register(comp);\
+		WRITE_INSTRUCTION({opc(0, a)});\
+	}
+
 
 byte parse_opcode(compiler* const comp, OPCODE op){
 	switch (op){
@@ -930,20 +963,20 @@ byte parse_opcode(compiler* const comp, OPCODE op){
 	case PSS: { PARSE_S(PSS_); } break;
 	case PSB: { PARSE_B(PSB_); } break;
 	case POP: { PARSE_R(POP_); } break;
-	case BNC: { PARSE_R(BNC_); } break;
-	case BNE: { PARSE_R(BNE_); } break;
-	case BEQ: { PARSE_R(BEQ_); } break;
-	case BLT: { PARSE_R(BLT_); } break;
-	case BGT: { PARSE_R(BGT_); } break;
-	case BLE: { PARSE_R(BLE_); } break;
-	case BGE: { PARSE_R(BGE_); } break;
-	case JMP: { PARSE_S(JMP_); } break;
-	case JNE: { PARSE_S(JNE_); } break;
-	case JEQ: { PARSE_S(JEQ_); } break;
-	case JLT: { PARSE_S(JLT_); } break;
-	case JGT: { PARSE_S(JGT_); } break;
-	case JLE: { PARSE_S(JLE_); } break;
-	case JGE: { PARSE_S(JGE_); } break;
+	case BNC: { PARSE_BRANCH(BNC_); } break;
+	case BNE: { PARSE_BRANCH(BNE_); } break;
+	case BEQ: { PARSE_BRANCH(BEQ_); } break;
+	case BLT: { PARSE_BRANCH(BLT_); } break;
+	case BGT: { PARSE_BRANCH(BGT_); } break;
+	case BLE: { PARSE_BRANCH(BLE_); } break;
+	case BGE: { PARSE_BRANCH(BGE_); } break;
+	case JMP: { PARSE_BRANCH(JMP_); } break;
+	case JNE: { PARSE_BRANCH(JNE_); } break;
+	case JEQ: { PARSE_BRANCH(JEQ_); } break;
+	case JLT: { PARSE_BRANCH(JLT_); } break;
+	case JGT: { PARSE_BRANCH(JGT_); } break;
+	case JLE: { PARSE_BRANCH(JLE_); } break;
+	case JGE: { PARSE_BRANCH(JGE_); } break;
 	case INT: { PARSE_B(INT_); } break;
 	case INR: { PARSE_R(INR_); } break;
 	default:
@@ -1084,7 +1117,7 @@ void flash_rom(byte* buffer, uint64_t size){
 void demo(){
 	byte rom[] = {
 		LDS_(REG(FULL, R7), 0x210),
-		BNC_(REG(FULL, R7)),
+		BNC_(0, REG(FULL, R7)),
 		POP_(REG(L16, R2)),
 		NOP_,
 		LDS_(REG(FULL, R0), 0xCAFE),
@@ -1106,14 +1139,14 @@ void demo(){
 		COM_(REG(HI, R6), REG(LO, R6)),
 		INV_(REG(LO, R6), REG(HI, R6)),
 		CMP_(REG(LO, R5), REG(LO, R6)),
-		JNE_(-INSTRUCTION_WIDTH),
-		JEQ_(INSTRUCTION_WIDTH*4),
+		JNE_(1, -INSTRUCTION_WIDTH),
+		JEQ_(1, INSTRUCTION_WIDTH*4),
 		CMP_(REG(LO, R6), REG(HI, R6)),
-		JLE_(-INSTRUCTION_WIDTH),
-		JGT_(INSTRUCTION_WIDTH*4),
+		JLE_(1, -INSTRUCTION_WIDTH),
+		JGT_(1, INSTRUCTION_WIDTH*4),
 		CMS_(REG(R16, R2), 0xbaff),
-		JGE_(-INSTRUCTION_WIDTH),
-		JLT_(INSTRUCTION_WIDTH*-5),
+		JGE_(1, -INSTRUCTION_WIDTH),
+		JLT_(1, INSTRUCTION_WIDTH*-5),
 		PSH_(REG(FULL, R3)),
 		PSS_(0x1337),
 		PSS_(0xC0DE),
@@ -1124,7 +1157,7 @@ void demo(){
 		POP_(REG(FULL, R0)),
 		POP_(REG(FULL, R1)),
 		LDS_(REG(FULL, R2), 688),
-		BNC_(REG(FULL, R2)),
+		BNC_(0, REG(FULL, R2)),
 		POP_(REG(FULL, R3)),
 		RES_(0xFACE),
 		PSH_(REG(FULL, R6)),
@@ -1138,7 +1171,7 @@ void demo(){
 		LDS_(REG(R16, R3), 0xCAFE),
 		PSH_(REG(FULL, R3)),
 		LDS_(REG(FULL, LR), 0x224),
-		BNC_(REG(FULL, LR)),
+		BNC_(0, REG(FULL, LR)),
 		POP_(REG(FULL, R0)),
 		NOP_,
 		LDI_(REG(FULL, R1), REG(FULL, FP), 0x11),
@@ -1153,7 +1186,7 @@ void demo(){
 		NOP_, NOP_, NOP_, NOP_
 	};
 	setup_registers();
-	flash_rom(cc, 1+(64*INSTRUCTION_WIDTH));
+	flash_rom(rom, 1+(64*INSTRUCTION_WIDTH));
 	interpret();
 	return;
 }
