@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include "machine.h"
 #include "hashmap.h"
 
@@ -695,7 +696,6 @@ void setup_partition_map(REG_PARTITION_map* partmap){
 	for (REG_PARTITION i = 0;i<PARTITION_COUNT;++i){
 		parts[i] = i;
 	}
-	REG_PARTITION_map_insert(partmap, "", parts++);
 	REG_PARTITION_map_insert(partmap, "L16", parts++);
 	REG_PARTITION_map_insert(partmap, "LM16", parts++);
 	REG_PARTITION_map_insert(partmap, "RM16", parts++);
@@ -940,7 +940,7 @@ byte parse_opcode(compiler* const comp, OPCODE op){
 	case JMP: { PARSE_S(JMP_); } break;
 	case JNE: { PARSE_S(JNE_); } break;
 	case JEQ: { PARSE_S(JEQ_); } break;
-	case JLT: { PARSE_S(RES_); } break;
+	case JLT: { PARSE_S(JLT_); } break;
 	case JGT: { PARSE_S(JGT_); } break;
 	case JLE: { PARSE_S(JLE_); } break;
 	case JGE: { PARSE_S(JGE_); } break;
@@ -1158,9 +1158,51 @@ void demo(){
 	return;
 }
 
+void show_binary(char* filename){
+	FILE* fd = fopen(filename, "rb");
+	if (fd == NULL){
+		fprintf(stderr, "Unable to open file '%s'\n", filename);
+		return;
+	}
+	byte* buffer = malloc(WRITE_BUFFER_SIZE);
+	word size = fread(buffer, sizeof(byte), WRITE_BUFFER_SIZE, fd);
+	fclose(fd);
+	if (size >= WRITE_BUFFER_SIZE){
+		fprintf(stderr, "Rom image too long\n");
+		free(buffer);
+		return;
+	}
+	for (word i = 0;i<size;++i){
+		printf("%02x ", buffer[i]);
+		if ((i+1)%4==0){
+			printf("\n");
+		}
+	}
+	printf("\n");
+	free(buffer);
+}
+
+void run_rom(char* filename){
+	FILE* fd = fopen(filename, "rb");
+	if (fd == NULL){
+		fprintf(stderr, "Unable to open file '%s'\n", filename);
+		return;
+	}
+	byte* buffer = malloc(WRITE_BUFFER_SIZE);
+	word size = fread(buffer, sizeof(byte), WRITE_BUFFER_SIZE, fd);
+	fclose(fd);
+	if (size >= WRITE_BUFFER_SIZE){
+		fprintf(stderr, "Rom image too long\n");
+		free(buffer);
+		return;
+	}
+	setup_registers();
+	flash_rom(buffer, size);
+	interpret();
+	free(buffer);
+}
+
 int32_t main(int argc, char** argv){
-	compile_file("a.src", "a.rom");
-	return 0;
 	if (argc <= 1){
 		printf(" -h for help\n");
 		return 0;
@@ -1168,6 +1210,7 @@ int32_t main(int argc, char** argv){
 	if (strncmp(argv[1], "-h", TOKEN_MAX) == 0){
 		printf(" compile program : -c infile.src -o outfile.rom\n");
 		printf("     run program : -r file.rom\n");
+		printf("     show binary : -s file.rom\n");
 		printf("    demo program : -d\n");
 		return 0;
 	}
@@ -1184,6 +1227,19 @@ int32_t main(int argc, char** argv){
 		return 0;
 	}
 	if (strncmp(argv[1], "-r", TOKEN_MAX) == 0){
+		if (argc != 3){
+			printf(" Needs a rom image name\n");
+			return 0;
+		}
+		run_rom(argv[2]);
+		return 0;
+	}
+	if (strncmp(argv[1], "-s", TOKEN_MAX) == 0){
+		if (argc != 3){
+			printf(" Needs a rom image name\n");
+			return 0;
+		}
+		show_binary(argv[2]);
 		return 0;
 	}
 	if (strncmp(argv[1], "-d", TOKEN_MAX) == 0){
