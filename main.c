@@ -19,6 +19,7 @@ MAP_IMPL(REG_PARTITION)
 #define STA_(src, addr, off)   STA, src,  addr, off
 #define STB_(src, addr, lit)   STB, src,  addr, lit
 #define MOV_(dst, src)         MOV, dst,  src, 0
+#define SWP_(dst, src)         SWP, dst,  src, 0
 #define ADS_(dst, right)       ADS, dst,  SHORT(right)
 #define SUS_(dst, right)       SUS, dst,  SHORT(right)
 #define MUS_(dst, right)       MUS, dst,  SHORT(right)
@@ -164,7 +165,7 @@ void show_machine(){
 	show_mem();
 }
      
-#define NEXT (mem[++reg[IP]])
+#define NEXT (mem[++ip])
 #define SHORT_LITERAL ((NEXT<<8)+(NEXT))
 #define LOAD_REG(b, v)\
 {\
@@ -325,7 +326,7 @@ void show_machine(){
 	uint16_t right = SHORT_LITERAL;\
 	word left; ACCESS_REG(left, dst);\
 	LOAD_REG(dst, left operator right);\
-	reg[IP] += 1;
+	reg[IP] += INSTRUCTION_WIDTH;
 
 #define ALU_I(operator)\
 	byte dst = NEXT;\
@@ -333,7 +334,7 @@ void show_machine(){
 	word left; ACCESS_REG(left, dst);\
 	word right; ACCESS_REG(right, src);\
 	LOAD_REG(dst, left operator right);\
-	reg[IP] += 2;
+	reg[IP] += INSTRUCTION_WIDTH;
 
 #define ALU(operator)\
 	byte dst = NEXT;\
@@ -342,20 +343,20 @@ void show_machine(){
 	word left; ACCESS_REG(left, src_a);\
 	word right; ACCESS_REG(right, src_b);\
 	LOAD_REG(dst, left operator right);\
-	reg[IP] += 1;
+	reg[IP] += INSTRUCTION_WIDTH;
 
 #define ALU_UI(operator)\
 	byte tar = NEXT;\
 	word val; ACCESS_REG(val, tar);\
 	LOAD_REG(tar, operator val);\
-	reg[IP] += 3;
+	reg[IP] += INSTRUCTION_WIDTH;
 
 #define ALU_U(operator)\
 	byte tar = NEXT;\
 	byte src = NEXT;\
 	word val; ACCESS_REG(val, src);\
 	LOAD_REG(tar, operator val);\
-	reg[IP] += 2;
+	reg[IP] += INSTRUCTION_WIDTH;
 
 #define COMPARE_FLAGS(a, b)\
 	if (a<b){\
@@ -372,59 +373,71 @@ void show_machine(){
 	}
 
 #define BRANCH_LINK\
-	reg[IP] -= 1;\
 	PUSH_REG(REG(FULL, IP));\
 	PUSH_REG(REG(FULL, FP));\
 	reg[FP] = reg[SP];\
-	reg[IP] += 2;\
+	ip += 1;\
 	byte adr = NEXT;\
 	ACCESS_REG(reg[IP], adr);
 
 #define JUMP_REG\
+	ip += 1;\
 	byte adr = NEXT;\
 	ACCESS_REG(reg[IP], adr);
 
 #define JUMP\
 	int16_t offset = SHORT_LITERAL;\
-	printf("%08lx\n", reg[IP] + (offset-3));\
-	reg[IP] += (offset-3);
+	reg[IP] += offset;
 
 void interpret(){
 	while (1){
 		show_machine();
 		getc(stdin);
-		byte op = mem[reg[IP]];
+		word ip = reg[IP];
+		byte op = mem[ip];
 		switch (op){
 		case NOP: { if (1) {return;} else {reg[IP] += INSTRUCTION_WIDTH;}} break;
-		case LDS: { byte b = NEXT; LOAD_REG(b, SHORT_LITERAL); reg[IP] += 1; } break;
-		case LDB: { byte b = NEXT; LOAD_REG(b, NEXT); reg[IP] += 2; } break;
+		case LDS: { byte b = NEXT; LOAD_REG(b, SHORT_LITERAL); reg[IP] += INSTRUCTION_WIDTH; } break;
+		case LDB: { byte b = NEXT; LOAD_REG(b, NEXT); reg[IP] += INSTRUCTION_WIDTH; } break;
 		case LDA: {
 				byte dst = NEXT; byte adr = NEXT; byte off = NEXT;
 				word a; ACCESS_REG(a, adr);
 				word o; ACCESS_REG(o, off);
-				LOAD_REG_ADDR(dst, a+o); reg[IP] += 1;
+				LOAD_REG_ADDR(dst, a+o);
+				reg[IP] += INSTRUCTION_WIDTH;
 			} break;
 		case LDI: {
 				byte dst = NEXT; byte adr = NEXT; byte off = NEXT;
 				word a; ACCESS_REG(a, adr);
-				LOAD_REG_ADDR(dst, a+off); reg[IP] += 1;
+				LOAD_REG_ADDR(dst, a+off);
+				reg[IP] += INSTRUCTION_WIDTH;
 			} break;
-		case STS: { byte src = NEXT; uint16_t adr = SHORT_LITERAL; STORE_REG(adr, src); reg[IP] += 1; } break;
+		case STS: { byte src = NEXT; uint16_t adr = SHORT_LITERAL; STORE_REG(adr, src); reg[IP] += INSTRUCTION_WIDTH; } break;
 		case STA: {
 				byte src = NEXT; byte adr = NEXT; byte off = NEXT;
 				word a; ACCESS_REG(a, adr);
 				word o; ACCESS_REG(o, off);
-				STORE_REG(a+o, src); reg[IP] += 1;
+				STORE_REG(a+o, src);
+				reg[IP] += INSTRUCTION_WIDTH;
 			} break;
 		case STB: {
 				byte src = NEXT; byte adr = NEXT; byte off = NEXT;
 				word a; ACCESS_REG(a, adr);
-				STORE_REG(a+off, src); reg[IP] += 1;
+				STORE_REG(a+off, src);
+				reg[IP] += INSTRUCTION_WIDTH;
 			} break;
 		case MOV: {
 				byte dst = NEXT; byte src = NEXT;
 				word s; ACCESS_REG(s, src);
-				LOAD_REG(dst, s); reg[IP] += 2;
+				LOAD_REG(dst, s);
+				reg[IP] += INSTRUCTION_WIDTH;
+			} break;
+		case SWP: {
+				byte a = NEXT; byte b = NEXT;
+				word s; ACCESS_REG(s, a);
+				word d; ACCESS_REG(d, b);
+				LOAD_REG(a, d); LOAD_REG(b, s);
+				reg[IP] += INSTRUCTION_WIDTH;
 			} break;
 		case ADS: { ALU_S(+); } break;
 		case SUS: { ALU_S(-); } break;
@@ -465,13 +478,13 @@ void interpret(){
 				word left; ACCESS_REG(left, a);
 				word right; ACCESS_REG(right, b);
 				COMPARE_FLAGS(left, right);
-				reg[IP] += 2;
+				reg[IP] += INSTRUCTION_WIDTH;
 			} break;
 		case CMS: {
 				byte a = NEXT; uint16_t right = SHORT_LITERAL;
 				word left; ACCESS_REG(left, a);
 				COMPARE_FLAGS(left, right);
-				reg[IP] += 1;
+				reg[IP] += INSTRUCTION_WIDTH;
 			} break;
 		case RET: {
 				byte tar = NEXT;
@@ -511,21 +524,21 @@ void interpret(){
 				POP_REG(REG(FULL,FP))
 				reg[IP] += INSTRUCTION_WIDTH;
 			} break;
-		case PSH: { byte tar = NEXT; PUSH_REG(tar); reg[IP] += 3; } break;
+		case PSH: { byte tar = NEXT; PUSH_REG(tar); reg[IP] += INSTRUCTION_WIDTH; } break;
 		case PSS: {
 				uint16_t lit = SHORT_LITERAL;
 				reg[SP] -= 1;
 				*(uint16_t*)(&mem[reg[SP]]) = lit;
 				reg[SP] -= 1;
-				reg[IP] += 2;
+				reg[IP] += INSTRUCTION_WIDTH;
 			} break;
 		case PSB: {
 				byte b = NEXT;
 				*(byte*)(&mem[reg[SP]]) = b;
 				reg[SP] -= 1;
-				reg[IP] += 3;
+				reg[IP] += INSTRUCTION_WIDTH;
 			} break;
-		case POP: { byte tar = NEXT; POP_REG(tar); reg[IP] += 3; } break;
+		case POP: { byte tar = NEXT; POP_REG(tar); reg[IP] += INSTRUCTION_WIDTH; } break;
 		case BNC: {
 				byte mode = NEXT;
 				if (mode == 0) { BRANCH_LINK; } else { JUMP; }
@@ -628,6 +641,7 @@ void setup_opcode_map(OPCODE_map* opmap){
 	OPCODE_map_insert(opmap, "STA", ops++);
 	OPCODE_map_insert(opmap, "STB", ops++);
 	OPCODE_map_insert(opmap, "MOV", ops++);
+	OPCODE_map_insert(opmap, "SWP", ops++);
 	OPCODE_map_insert(opmap, "ADS", ops++);
 	OPCODE_map_insert(opmap, "SUS", ops++);
 	OPCODE_map_insert(opmap, "MUS", ops++);
@@ -918,6 +932,7 @@ byte parse_opcode(compiler* const comp, OPCODE op){
 	case STA: { PARSE_RRR(STA_); } break;
 	case STB: { PARSE_RRB(STB_); } break;
 	case MOV: { PARSE_RR(MOV_); } break;
+	case SWP: { PARSE_RR(SWP_); } break;
 	case ADS: { PARSE_RS(ADS_); } break;
 	case SUS: { PARSE_RS(SUS_); } break;
 	case MUS: { PARSE_RS(MUS_); } break;
@@ -1186,7 +1201,7 @@ void demo(){
 		NOP_, NOP_, NOP_, NOP_
 	};
 	setup_registers();
-	flash_rom(rom, 1+(64*INSTRUCTION_WIDTH));
+	flash_rom(cc, 1+(64*INSTRUCTION_WIDTH));
 	interpret();
 	return;
 }
