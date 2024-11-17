@@ -715,17 +715,17 @@ void setup_register_map(REGISTER_map* regmap){
 	REGISTER_map_insert(regmap, "FP", regs++);
 	REGISTER_map_insert(regmap, "SR", regs++);
 	REGISTER_map_insert(regmap, "LR", regs++);
-	REGISTER_map_insert(regmap, "R0", regs++);
-	REGISTER_map_insert(regmap, "R1", regs++);
-	REGISTER_map_insert(regmap, "R2", regs++);
-	REGISTER_map_insert(regmap, "R3", regs++);
-	REGISTER_map_insert(regmap, "R4", regs++);
-	REGISTER_map_insert(regmap, "R5", regs++);
-	REGISTER_map_insert(regmap, "R6", regs++);
-	REGISTER_map_insert(regmap, "R7", regs++);
-	REGISTER_map_insert(regmap, "R8", regs++);
-	REGISTER_map_insert(regmap, "R9", regs++);
 	REGISTER_map_insert(regmap, "RA", regs++);
+	REGISTER_map_insert(regmap, "RB", regs++);
+	REGISTER_map_insert(regmap, "RC", regs++);
+	REGISTER_map_insert(regmap, "RD", regs++);
+	REGISTER_map_insert(regmap, "RE", regs++);
+	REGISTER_map_insert(regmap, "RF", regs++);
+	REGISTER_map_insert(regmap, "RG", regs++);
+	REGISTER_map_insert(regmap, "RH", regs++);
+	REGISTER_map_insert(regmap, "RI", regs++);
+	REGISTER_map_insert(regmap, "RJ", regs++);
+	REGISTER_map_insert(regmap, "RK", regs++);
 }
 
 void setup_partition_map(REG_PARTITION_map* partmap){
@@ -733,14 +733,14 @@ void setup_partition_map(REG_PARTITION_map* partmap){
 	for (REG_PARTITION i = 0;i<PARTITION_COUNT;++i){
 		parts[i] = i;
 	}
-	REG_PARTITION_map_insert(partmap, "L16", parts++);
-	REG_PARTITION_map_insert(partmap, "LM16", parts++);
-	REG_PARTITION_map_insert(partmap, "RM16", parts++);
-	REG_PARTITION_map_insert(partmap, "R16", parts++);
-	REG_PARTITION_map_insert(partmap, "FULL", parts++);
-	REG_PARTITION_map_insert(partmap, "HALF", parts++);
-	REG_PARTITION_map_insert(partmap, "LO", parts++);
-	REG_PARTITION_map_insert(partmap, "HI", parts++);
+	REG_PARTITION_map_insert(partmap, "Z]", parts++);
+	REG_PARTITION_map_insert(partmap, "Y]", parts++);
+	REG_PARTITION_map_insert(partmap, "X]", parts++);
+	REG_PARTITION_map_insert(partmap, "W]", parts++);
+	REG_PARTITION_map_insert(partmap, "Q]", parts++);
+	REG_PARTITION_map_insert(partmap, "D]", parts++);
+	REG_PARTITION_map_insert(partmap, "LO]", parts++);
+	REG_PARTITION_map_insert(partmap, "HI]", parts++);
 }
 
 byte whitespace(char c){

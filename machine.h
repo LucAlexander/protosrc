@@ -45,7 +45,7 @@ typedef enum {
 
 MAP_DEF(REGISTER)
 
-#define SEP_CHAR '@'
+#define SEP_CHAR '['
 
 typedef enum {
 	L16,
