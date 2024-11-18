@@ -74,12 +74,33 @@ typedef struct {
 	word i;
 } string;
 
+typedef struct label_chain label_chain;
+
+typedef struct label_chain {
+	union {
+		struct {
+			label_chain* next;
+			word ref_location;
+		} pending;
+		struct {
+			word address;
+		} filled;
+	} data;
+	enum {
+		PENDING_LINK,
+		FILLED_LINK
+	} tag;
+} label_chain;
+
+MAP_DEF(label_chain)
+
 typedef struct {
 	string str;
 	string buf;
 	OPCODE_map opmap;
 	REGISTER_map regmap;
 	REG_PARTITION_map partmap;
+	label_chain_map chain;
 	pool* mem;
 	char* err;
 } compiler;

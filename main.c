@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include "machine.h"
 #include "hashmap.h"
 
@@ -8,6 +9,7 @@
 MAP_IMPL(OPCODE)
 MAP_IMPL(REGISTER)
 MAP_IMPL(REG_PARTITION)
+MAP_IMPL(label_chain)
 
 #define SHORT(lit) (lit&0xFF00)>>8, lit&0xFF
 #define NOP_                   NOP, 0,    0, 0
@@ -783,7 +785,7 @@ byte parse_partition(compiler* const comp){
 	ASSERT_LOCAL(0, "Unexpected EOF\n");
 }
 
-byte parse_register(compiler* const comp){
+word parse_register(compiler* const comp){
 	while (comp->str.i < comp->str.size){
 		char c = comp->str.text[comp->str.i];
 		switch (c){
@@ -802,6 +804,9 @@ byte parse_register(compiler* const comp){
 			if (c==SEP_CHAR){
 				break;
 			}
+			if (whitespace(c)){
+				break;
+			}
 			s = comp->str.text[comp->str.i];
 			hash = ((hash<<5)+hash)+s;
 			comp->str.i += 1;
@@ -811,8 +816,9 @@ byte parse_register(compiler* const comp){
 		REGISTER* r = REGISTER_map_access_by_hash(&comp->regmap, hash, (const char* const)comp->str.text+start);
 		comp->str.text[comp->str.i] = copy;
 		comp->str.i += 1;
-		if (r == NULL){
-			return 1;
+		if (r == NULL) {
+			snprintf(comp->err, ERROR_BUFFER, " Could not parse register name\n");
+			return start;
 		}
 		return *r;
 	}
@@ -862,19 +868,117 @@ byte parse_byte(compiler* const comp){
 	return parse_number(comp, 1);
 }
 
-byte parse_label(compiler* const comp){
-	return 0; // TODO
+#define WRITE_IMPUTATION(adr, data)\
+{\
+	byte inst[] = {data};\
+	for (byte i = 0;i<4;++i){\
+		comp->buf.text[adr++] = inst[i];\
+	}\
+}
+
+byte add_label_link(compiler* const comp, const char* const label, word len){
+	label_chain* link = label_chain_map_access(&comp->chain, label);
+	word address = comp->buf.i+PROGRAM_START;
+	if (link == NULL){
+		link = pool_request(comp->mem, sizeof(label_chain));
+		link->data.filled.address = address;
+		link->tag = FILLED_LINK;
+		char* key = pool_request(comp->mem, len);
+		strncpy(key, label, len);
+		label_chain_map_insert(&comp->chain, key, link);
+		return 0;
+	}
+	ASSERT_LOCAL(link->tag == PENDING_LINK, " Duplicate jump labels\n");
+	while (link != NULL){
+		word loc = (link->data.pending.ref_location+PROGRAM_START);
+		int32_t offset = address - loc;
+		loc -= PROGRAM_START;
+		label_chain* next = link->data.pending.next;
+		link->tag = FILLED_LINK;
+		if (offset > 32767 || offset < -32767){
+			word nop = loc-(INSTRUCTION_WIDTH*4);
+			WRITE_IMPUTATION(nop, LDS_(REG(L16, LR), address>>48));
+			WRITE_IMPUTATION(nop, LDS_(REG(LM16, LR), address>>32));
+			WRITE_IMPUTATION(nop, LDS_(REG(RM16, LR), address>>16));
+			WRITE_IMPUTATION(nop, LDS_(REG(R16, LR), address));
+			comp->buf.text[loc+1] = 0;
+			comp->buf.text[loc+2] = 0;
+			comp->buf.text[loc+3] = REG(FULL, LR);
+		}
+		else{
+			comp->buf.text[loc+1] = 1;
+			comp->buf.text[loc+2] = ((offset&0xFF00) >> 8);
+			comp->buf.text[loc+3] = offset&0xFF;
+		}
+		link = next;
+	}
+	return 0;
+}
+
+word request_label(compiler* const comp, const char* const label, word len){
+	label_chain* link = label_chain_map_access(&comp->chain, label);
+	if (link == NULL){
+		const char* c = label;
+		ASSERT_LOCAL(!isdigit(*c), " First character of jump label cannot be numeric\n");
+		for (byte i = 0;i<len;++i){
+			ASSERT_LOCAL(isalnum(*c) || (*c) == '_', " Jump label must be contain alphanumeric characters and underscores only\n");
+			c += 1;
+		}
+		byte impute_size = 4*INSTRUCTION_WIDTH;
+		for (byte i = 0;i<impute_size;++i){
+			comp->buf.text[comp->buf.i++] = 0;
+		}
+		link = pool_request(comp->mem, sizeof(label_chain));
+		link->data.pending.next=NULL;
+		link->data.pending.ref_location=comp->buf.i;
+		link->tag = PENDING_LINK;
+		char* key = pool_request(comp->mem, len);
+		strncpy(key, label, len);
+		label_chain_map_insert(&comp->chain, key, link);
+		return 0;
+	}
+	if (link->tag == PENDING_LINK){
+		byte impute_size = 4*INSTRUCTION_WIDTH;
+		for (byte i = 0;i<impute_size;++i){
+			comp->buf.text[comp->buf.i++] = 0;
+		}
+		label_chain* new_link = pool_request(comp->mem, sizeof(label_chain));
+		new_link = pool_request(comp->mem, sizeof(label_chain));
+		new_link->data.pending.next=link->data.pending.next;
+		new_link->data.pending.ref_location=comp->buf.i;
+		new_link->tag = PENDING_LINK;
+		link->data.pending.next = new_link;
+		return 0;
+	}
+	return link->data.filled.address;
+}
+
+byte parse_label(compiler* const comp, char* const label){
+	char* c = label;
+	ASSERT_LOCAL(!isdigit(*c), " First character of jump label cannot be numeric\n");
+	for (;*(c+1) != '\0';++c){
+		ASSERT_LOCAL(isalnum(*c) || (*c) == '_', " Jump label must be contain alphanumeric characters and underscores only\n");
+	}
+	ASSERT_LOCAL((*c) == ':', " Jump label must end with ':'");
+	(*c) = '\0';
+	word len = c-label;
+	add_label_link(comp, label, len);
+	(*c) = ':';
+	return 1;
 }
 
 #define WRITE_INSTRUCTION(li)\
+{\
 	byte inst[] = li;\
 	for (byte i = 0;i<4;++i){\
 		comp->buf.text[comp->buf.i] = inst[i];\
 		comp->buf.i += 1;\
-	}
+	}\
+}
 
 byte parse_full_register(compiler* const comp){
 	byte r = parse_register(comp);
+	ASSERT_ERR(r);
 	byte p = parse_partition(comp);
 	return REG(p, r);
 }
@@ -916,10 +1020,40 @@ byte parse_full_register(compiler* const comp){
 		WRITE_INSTRUCTION({opc(1, s)});\
 	}\
 	else{\
-		byte a = parse_full_register(comp);\
-		WRITE_INSTRUCTION({opc(0, a)});\
-	}
-
+		word r = parse_register(comp);\
+		if (*comp->err == 0){\
+			byte p = parse_partition(comp);\
+			byte a = REG(p, (r&0xFF));\
+			WRITE_INSTRUCTION({opc(0, a)});\
+		}\
+		else{\
+			*comp->err = 0;\
+			comp->str.i -= 1;\
+			byte copy = comp->str.text[comp->str.i];\
+			comp->str.text[comp->str.i] = '\0';\
+			word address = request_label(comp, (const char* const)comp->str.text+r, comp->str.i-r);\
+			ASSERT_ERR(1);\
+			comp->str.text[comp->str.i] = copy;\
+			comp->str.i += 1;\
+			if (address == 0){\
+				WRITE_INSTRUCTION({opc(0,0)});\
+			}\
+			else{\
+				word loc = comp->buf.i+PROGRAM_START;\
+				int32_t offset = address - loc;\
+				if (offset > 32767 || offset < -32767){\
+					WRITE_INSTRUCTION({LDS_(REG(L16, LR), address>>48)});\
+					WRITE_INSTRUCTION({LDS_(REG(LM16, LR), address>>32)});\
+					WRITE_INSTRUCTION({LDS_(REG(RM16, LR), address>>16)});\
+					WRITE_INSTRUCTION({LDS_(REG(R16, LR), address)});\
+					WRITE_INSTRUCTION({opc(0, REG(FULL, LR))});\
+				}\
+				else{\
+					WRITE_INSTRUCTION({opc(1, offset&0xFFFF)});\
+				}\
+			}\
+		}\
+	}\
 
 byte parse_opcode(compiler* const comp, OPCODE op){
 	switch (op){
@@ -1029,13 +1163,16 @@ byte compile_cstr(compiler* const comp){
 		char copy = comp->str.text[comp->str.i];
 		comp->str.text[comp->str.i] = '\0';
 		OPCODE* op = OPCODE_map_access_by_hash(&comp->opmap, hash, (const char* const)comp->str.text+start);
+		if (op != NULL){
+			comp->str.text[comp->str.i] = copy;
+			comp->str.i += 1;
+			parse_opcode(comp, *op);
+			ASSERT_ERR(1);
+			continue;
+		}
+		parse_label(comp, (char* const) comp->str.text+start);
 		comp->str.text[comp->str.i] = copy;
 		comp->str.i += 1;
-		if (op == NULL){
-			//TODO label
-			return 1;
-		}
-		parse_opcode(comp, *op);
 		ASSERT_ERR(1);
 	}
 	return 0;
@@ -1085,6 +1222,7 @@ void compile_file(char* infile, char* outfile){
 		.opmap = opmap,
 		.regmap = regmap,
 		.partmap = partmap,
+		.chain = label_chain_map_init(&mem),
 		.mem = &mem,
 		.err = pool_request(&mem, ERROR_BUFFER)
 	};
@@ -1251,6 +1389,7 @@ void run_rom(char* filename){
 }
 
 int32_t main(int argc, char** argv){
+	compile_file("parse_test.src", "parse_test.rom");
 	if (argc <= 1){
 		printf(" -h for help\n");
 		return 0;
