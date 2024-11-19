@@ -1134,6 +1134,37 @@ byte parse_opcode(compiler* const comp, OPCODE op){
 	return 0;
 }
 
+byte check_pending_jumps(compiler* const comp){
+	word capacity = 2;
+	label_chain_map_bucket** stack = pool_request(comp->mem, sizeof(label_chain_map_bucket*)*capacity);
+	word size = 0;
+	for (byte i = 0;i<MAP_SIZE;++i){
+		label_chain_map_bucket* bucket = &comp->chain.buckets[i];
+		if (bucket->tag == BUCKET_EMPTY){
+			continue;
+		}
+		stack[size] = bucket;
+		size += 1;
+		while (size != 0){
+			bucket = stack[--size];
+			if (size == (capacity-1)){
+				pool_request(comp->mem, sizeof(label_chain_map_bucket*)*capacity);
+				capacity *= 2;
+			}
+			ASSERT_LOCAL(bucket->value->tag == FILLED_LINK, "Label target for jump never resolved to address or offset\n");
+			if (bucket->right->tag == BUCKET_FULL){
+				stack[size] = bucket->right;
+				size += 1;
+			}
+			if (bucket->left->tag == BUCKET_FULL){
+				stack[size] = bucket->left;
+				size += 1;
+			}
+		}
+	}
+	return 0;
+}
+
 byte compile_cstr(compiler* const comp){
 	while (comp->str.i < comp->str.size){
 		char c = comp->str.text[comp->str.i];
@@ -1175,6 +1206,7 @@ byte compile_cstr(compiler* const comp){
 		comp->str.i += 1;
 		ASSERT_ERR(1);
 	}
+	check_pending_jumps(comp);
 	return 0;
 }
 
@@ -1389,7 +1421,6 @@ void run_rom(char* filename){
 }
 
 int32_t main(int argc, char** argv){
-	compile_file("parse_test.src", "parse_test.rom");
 	if (argc <= 1){
 		printf(" -h for help\n");
 		return 0;
