@@ -63,6 +63,7 @@ MAP_IMPL(label_chain)
 #define RES_(tar)              RES, SHORT(tar), 0
 #define REB_(tar)              REB, tar,  0, 0
 #define ESC_                   ESC, 0,    0, 0
+#define CAL_                   CAL, 0,    0, 0
 #define PSH_(tar)              PSH, tar,  0, 0
 #define PSS_(tar)              PSS, SHORT(tar), 0
 #define PSB_(tar)              PSB, tar,  0, 0
@@ -106,6 +107,7 @@ void show_registers(){
 	SHOW_REG(IP);
 	printf("\033[1;33m");
 	SHOW_REG(SP);
+	SHOW_REG(CR);
 	printf("\033[1;31m");
 	SHOW_REG(FP);
 	SHOW_REG(SR);
@@ -121,7 +123,6 @@ void show_registers(){
 	SHOW_REG(R7);
 	SHOW_REG(R8);
 	SHOW_REG(R9);
-	SHOW_REG(RA);
 	printf("\n");
 }
 
@@ -382,6 +383,13 @@ void show_machine(){
 	byte adr = NEXT;\
 	ACCESS_REG(reg[IP], adr);
 
+#define BRANCH_JUMP\
+	PUSH_REG(REG(FULL, IP));\
+	PUSH_REG(REG(FULL, FP));\
+	reg[FP] = reg[SP];\
+	int16_t offset = SHORT_LITERAL;\
+	reg[IP] += offset;
+
 #define JUMP_REG\
 	ip += 1;\
 	byte adr = NEXT;\
@@ -398,7 +406,7 @@ void interpret(){
 		word ip = reg[IP];
 		byte op = mem[ip];
 		switch (op){
-		case NOP: { if (1) {return;} else {reg[IP] += INSTRUCTION_WIDTH;}} break;
+		case NOP: { reg[IP] += INSTRUCTION_WIDTH; } break;
 		case LDS: { byte b = NEXT; LOAD_REG(b, SHORT_LITERAL); reg[IP] += INSTRUCTION_WIDTH; } break;
 		case LDB: { byte b = NEXT; LOAD_REG(b, NEXT); reg[IP] += INSTRUCTION_WIDTH; } break;
 		case LDA: {
@@ -493,6 +501,8 @@ void interpret(){
 				reg[SP] = reg[FP];
 				POP_REG(REG(FULL,FP));
 				POP_REG(REG(FULL,IP));
+				reg[SP] = reg[CR];
+				POP_REG(REG(FULL,CR));
 				PUSH_REG(tar);
 				reg[IP] += INSTRUCTION_WIDTH;
 			} break;
@@ -500,6 +510,8 @@ void interpret(){
 				reg[SP] = reg[FP];
 				POP_REG(REG(FULL,FP));
 				POP_REG(REG(FULL,IP));
+				reg[SP] = reg[CR];
+				POP_REG(REG(FULL,CR));
 				reg[IP] += INSTRUCTION_WIDTH;
 			} break;
 		case RES: {
@@ -507,6 +519,8 @@ void interpret(){
 				reg[SP] = reg[FP];
 				POP_REG(REG(FULL,FP))
 				POP_REG(REG(FULL,IP))
+				reg[SP] = reg[CR];
+				POP_REG(REG(FULL,CR));
 				reg[SP] -= 1;
 				*(uint16_t*)(&mem[reg[SP]]) = tar;
 				reg[SP] -= 1;
@@ -517,6 +531,8 @@ void interpret(){
 				reg[SP] = reg[FP];
 				POP_REG(REG(FULL,FP))
 				POP_REG(REG(FULL,IP))
+				reg[SP] = reg[CR];
+				POP_REG(REG(FULL,CR));
 				*(byte*)(&mem[reg[SP]]) = tar;
 				reg[SP] -= 1;
 				reg[IP] += INSTRUCTION_WIDTH;
@@ -524,6 +540,13 @@ void interpret(){
 		case ESC: {
 				reg[SP] = reg[FP];
 				POP_REG(REG(FULL,FP))
+				reg[SP] = reg[CR];
+				POP_REG(REG(FULL,CR));
+				reg[IP] += INSTRUCTION_WIDTH;
+			} break;
+		case CAL: {
+				PUSH_REG(REG(FULL,CR));
+				reg[CR] = reg[SP];
 				reg[IP] += INSTRUCTION_WIDTH;
 			} break;
 		case PSH: { byte tar = NEXT; PUSH_REG(tar); reg[IP] += INSTRUCTION_WIDTH; } break;
@@ -543,36 +566,36 @@ void interpret(){
 		case POP: { byte tar = NEXT; POP_REG(tar); reg[IP] += INSTRUCTION_WIDTH; } break;
 		case BNC: {
 				byte mode = NEXT;
-				if (mode == 0) { BRANCH_LINK; } else { JUMP; }
+				if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }
 			} break;
 		case BNE: {
 				if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0))
-				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { JUMP; }}
+				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
 				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case BEQ: {
 				if (((reg[SR] & ZERO) != 0) && ((reg[SR] & CARRY) == 0))
-				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { JUMP; }}
+				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
 				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case BLT: {
 				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) != 0))
-				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { JUMP; }}
+				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
 				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case BGT: {
 				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) == 0))
-				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { JUMP; }}
+				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
 				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case BLE: {
 				if ((reg[SR] & ZERO) != (reg[SR] & CARRY))
-				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { JUMP; }}
+				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
 				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case BGE: {
 				if ((reg[SR] & CARRY) == 0)
-				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { JUMP; }}
+				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
 				else { reg[IP] += INSTRUCTION_WIDTH; }
 			} break;
 		case JMP: {
@@ -685,6 +708,7 @@ void setup_opcode_map(OPCODE_map* opmap){
 	OPCODE_map_insert(opmap, "RES", ops++);
 	OPCODE_map_insert(opmap, "REB", ops++);
 	OPCODE_map_insert(opmap, "ESC", ops++);
+	OPCODE_map_insert(opmap, "CAL", ops++);
 	OPCODE_map_insert(opmap, "PSH", ops++);
 	OPCODE_map_insert(opmap, "PSS", ops++);
 	OPCODE_map_insert(opmap, "PSB", ops++);
@@ -717,6 +741,7 @@ void setup_register_map(REGISTER_map* regmap){
 	REGISTER_map_insert(regmap, "FP", regs++);
 	REGISTER_map_insert(regmap, "SR", regs++);
 	REGISTER_map_insert(regmap, "LR", regs++);
+	REGISTER_map_insert(regmap, "CR", regs++);
 	REGISTER_map_insert(regmap, "RA", regs++);
 	REGISTER_map_insert(regmap, "RB", regs++);
 	REGISTER_map_insert(regmap, "RC", regs++);
@@ -727,7 +752,6 @@ void setup_register_map(REGISTER_map* regmap){
 	REGISTER_map_insert(regmap, "RH", regs++);
 	REGISTER_map_insert(regmap, "RI", regs++);
 	REGISTER_map_insert(regmap, "RJ", regs++);
-	REGISTER_map_insert(regmap, "RK", regs++);
 }
 
 void setup_partition_map(REG_PARTITION_map* partmap){
@@ -1108,6 +1132,7 @@ byte parse_opcode(compiler* const comp, OPCODE op){
 	case RES: { PARSE_S(RES_); } break;
 	case REB: { PARSE_B(REB_); } break;
 	case ESC: { WRITE_INSTRUCTION({ESC_}); } break;
+	case CAL: { WRITE_INSTRUCTION({CAL_}); } break;
 	case PSH: { PARSE_R(PSH_); } break;
 	case PSS: { PARSE_S(PSS_); } break;
 	case PSB: { PARSE_B(PSB_); } break;
@@ -1290,6 +1315,7 @@ void setup_registers(){
 	}
 	reg[SP] = MEMORY_SIZE-1;
 	reg[FP] = MEMORY_SIZE-1;
+	reg[CR] = MEMORY_SIZE-1;
 	reg[IP] = PROGRAM_START;
 }
 

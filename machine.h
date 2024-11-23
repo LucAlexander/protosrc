@@ -27,6 +27,7 @@ typedef enum {
 	CMP, CMS,
 	RET, REI, RES, REB,
 	ESC,
+	CAL,
 	PSH, PSS, PSB,
 	POP,
 	BNC, BNE, BEQ, BLT, BGT, BLE, BGE,
@@ -38,8 +39,8 @@ typedef enum {
 MAP_DEF(OPCODE)
 
 typedef enum {
-	IP, SP, FP, SR, LR,
-	R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, RA,
+	IP, SP, FP, SR, LR, CR,
+	R0, R1, R2, R3, R4, R5, R6, R7, R8, R9,
 	REGISTER_COUNT
 } REGISTER;
 
