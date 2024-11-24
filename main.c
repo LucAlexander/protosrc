@@ -849,14 +849,20 @@ word parse_register(compiler* const comp){
 	ASSERT_LOCAL(0, "Unexpected EOF\n");
 }
 
-word parse_number(compiler* const comp, byte max_bytes){
+int64_t parse_number(compiler* const comp, byte max_bytes){
 	char c = comp->str.text[comp->str.i];
 	comp->str.i += 1;
+	byte negative = 0;
+	if (c=='-'){
+		negative = 1;
+		c = comp->str.text[comp->str.i];
+		comp->str.i += 1;
+	}
 	ASSERT_LOCAL(c=='0', "Expected numeric\n");
 	c = comp->str.text[comp->str.i];
 	comp->str.i += 1;
 	ASSERT_LOCAL(c=='x' || c == 'X', "Expected numeric\n");
-	word result = 0;
+	int64_t result = 0;
 	word index = 0;
 	byte max_chars = max_bytes*2;
 	while (comp->str.i < comp->str.size){
@@ -874,13 +880,18 @@ word parse_number(compiler* const comp, byte max_bytes){
 		else if (c >= 'A' && c <= 'F'){
 			converted = (c - 'A')+10;
 		}
-		else ASSERT_LOCAL(0, "Expected hex digit in numeric\n");
+		else ASSERT_LOCAL(0, " Expected hex digit in numeric\n");
 		result = (result << 4) | (converted & 0xF);
 		comp->str.i += 1;
 		index += 1;
 	}
-	ASSERT_LOCAL(index > 0 && index <= max_chars, "Too many bytes provided in numeric\n");
+	ASSERT_LOCAL(index > 0 && index <= max_chars, " Too many bytes provided in numeric\n");
 	comp->str.i += 1;
+	if (negative == 1){
+		printf("%lx\n",result);
+		ASSERT_LOCAL(((max_bytes==2) && (result <= 32767))||((max_bytes==1) && (result <= 127)), " Signed integer out of range\n");
+		return -result;
+	}
 	return result;
 }
 
@@ -1039,7 +1050,7 @@ byte parse_full_register(compiler* const comp){
 	byte b = parse_byte(comp);\
 	WRITE_INSTRUCTION({opc(a, c, b)});
 #define PARSE_BRANCH(opc)\
-	if (comp->str.text[comp->str.i] == '0'){\
+	if (comp->str.text[comp->str.i] == '0' || comp->str.text[comp->str.i] == '-'){\
 		int16_t s = parse_short(comp);\
 		WRITE_INSTRUCTION({opc(1, s)});\
 	}\
