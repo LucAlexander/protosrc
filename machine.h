@@ -25,10 +25,10 @@ typedef enum {
 	ADD, SUB, MUL, DIV, MOD, AND, OR, SHL, SHR, XOR,
 	INV, COM, INI, COI,
 	CMP, CMS,
-	RET, REI, RES, REB,
+	RET, REI, RES,
 	ESC,
 	CAL,
-	PSH, PSS, PSB,
+	PSH, PSS,
 	POP,
 	BNC, BNE, BEQ, BLT, BGT, BLE, BGE,
 	JMP, JNE, JEQ, JLT, JGT, JLE, JGE,
@@ -94,6 +94,14 @@ typedef struct label_chain {
 } label_chain;
 
 MAP_DEF(label_chain)
+
+#define DEFAULT_BLOCK_CAPACITY 4
+
+typedef struct {
+	byte* buffer;
+	word size;
+	word capacity;
+} call_block;
 
 typedef struct {
 	string str;

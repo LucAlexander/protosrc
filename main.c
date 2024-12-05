@@ -61,12 +61,10 @@ MAP_IMPL(label_chain)
 #define RET_(tar)              RET, tar,  0, 0
 #define REI_                   REI, 0,    0, 0
 #define RES_(tar)              RES, SHORT(tar), 0
-#define REB_(tar)              REB, tar,  0, 0
 #define ESC_                   ESC, 0,    0, 0
 #define CAL_                   CAL, 0,    0, 0
 #define PSH_(tar)              PSH, tar,  0, 0
 #define PSS_(tar)              PSS, SHORT(tar), 0
-#define PSB_(tar)              PSB, tar,  0, 0
 #define POP_(dst)              POP, dst,  0, 0
 #define BNC_(mode, addr)       BNC, mode, SHORT(addr)
 #define BNE_(mode, addr)       BNE, mode, SHORT(addr)
@@ -130,10 +128,11 @@ void show_mem(){
 	printf("\033[4mProgram / Stack\033[0m\n");
 	printf("\033[1;32m");
 	for (byte i = 0;i<INSTRUCTION_WIDTH*8;){
-		printf("%016lx | ", reg[IP]+i);
-		byte m = i+4;
+		word address = PROGRAM_START+(INSTRUCTION_WIDTH*reg[IP]);
+		printf("%016lx | ", address+i);
+		byte m = i+INSTRUCTION_WIDTH;
 		for (;i<m;++i){
-			printf("%02x \033[0m\033[1m", mem[reg[IP]+i]);
+			printf("%02x \033[0m\033[1m", mem[address+i]);
 		}
 		printf("\033[0m\033[1m\n");
 	}
@@ -145,7 +144,7 @@ void show_mem(){
 		bottom = reg[SP] + INSTRUCTION_WIDTH*24;
 	}
 	for (word i = left;i<bottom;){
-		word m = i+4;
+		word m = i+INSTRUCTION_WIDTH;
 		printf("%016lx | ", i);
 		for (;i<m;++i){
 			if (i == reg[SP]){
@@ -273,21 +272,23 @@ void show_machine(){
 		reg[SP] -= 1;\
 		break;\
 	case HALF:\
-		reg[SP] -= 3;\
-		*(uint32_t*)(&mem[reg[SP]]) = *half[r];\
+		reg[SP] -= (sizeof(word)-1);\
+		*(word*)(&mem[reg[SP]]) = (word)(*half[r]);\
 		reg[SP] -= 1;\
 		break;\
 	case LO:\
-		*(byte*)(&mem[reg[SP]]) = *lo[r];\
+		reg[SP] -= (sizeof(word)-1);\
+		*(word*)(&mem[reg[SP]]) = (word)(*lo[r]);\
 		reg[SP] -= 1;\
 		break;\
 	case HI:\
-		*(byte*)(&mem[reg[SP]]) = *hi[r];\
+		reg[SP] -= (sizeof(word)-1);\
+		*(word*)(&mem[reg[SP]]) = (word)(*hi[r]);\
 		reg[SP] -= 1;\
 		break;\
 	default:\
-		reg[SP] -= 1;\
-		*(uint16_t*)(&mem[reg[SP]]) = *quar[(r*4)+partition];\
+		reg[SP] -= (sizeof(word)-1);\
+		*(word*)(&mem[reg[SP]]) = (word)(*quar[(r*4)+partition]);\
 		reg[SP] -= 1;\
 		break;\
 	}\
@@ -305,21 +306,23 @@ void show_machine(){
 		break;\
 	case HALF:\
 		reg[SP] += 1;\
-		*half[r] = *(uint32_t*)(&mem[reg[SP]]);\
-		reg[SP] += 3;\
+		*half[r] = *(word*)(&mem[reg[SP]]);\
+		reg[SP] += sizeof(word)-1;\
 		break;\
 	case LO:\
 		reg[SP] += 1;\
-		*lo[r] = *(byte*)(&mem[reg[SP]]);\
+		*lo[r] = *(word*)(&mem[reg[SP]]);\
+		reg[SP] += sizeof(word)-1;\
 		break;\
 	case HI:\
 		reg[SP] += 1;\
-		*hi[r] = *(byte*)(&mem[reg[SP]]);\
+		*hi[r] = *(word*)(&mem[reg[SP]]);\
+		reg[SP] += sizeof(word)-1;\
 		break;\
 	default:\
 		reg[SP] += 1;\
-		*quar[(r*4)+partition] = *(uint16_t*)(&mem[reg[SP]]);\
-		reg[SP] += 1;\
+		*quar[(r*4)+partition] = *(word*)(&mem[reg[SP]]);\
+		reg[SP] += sizeof(word)-1;\
 		break;\
 	}\
 }
@@ -329,7 +332,7 @@ void show_machine(){
 	uint16_t right = SHORT_LITERAL;\
 	word left; ACCESS_REG(left, dst);\
 	LOAD_REG(dst, left operator right);\
-	reg[IP] += INSTRUCTION_WIDTH;
+	reg[IP] += 1;
 
 #define ALU_I(operator)\
 	byte dst = NEXT;\
@@ -337,7 +340,7 @@ void show_machine(){
 	word left; ACCESS_REG(left, dst);\
 	word right; ACCESS_REG(right, src);\
 	LOAD_REG(dst, left operator right);\
-	reg[IP] += INSTRUCTION_WIDTH;
+	reg[IP] += 1;
 
 #define ALU(operator)\
 	byte dst = NEXT;\
@@ -346,20 +349,20 @@ void show_machine(){
 	word left; ACCESS_REG(left, src_a);\
 	word right; ACCESS_REG(right, src_b);\
 	LOAD_REG(dst, left operator right);\
-	reg[IP] += INSTRUCTION_WIDTH;
+	reg[IP] += 1;
 
 #define ALU_UI(operator)\
 	byte tar = NEXT;\
 	word val; ACCESS_REG(val, tar);\
 	LOAD_REG(tar, operator val);\
-	reg[IP] += INSTRUCTION_WIDTH;
+	reg[IP] += 1;
 
 #define ALU_U(operator)\
 	byte tar = NEXT;\
 	byte src = NEXT;\
 	word val; ACCESS_REG(val, src);\
 	LOAD_REG(tar, operator val);\
-	reg[IP] += INSTRUCTION_WIDTH;
+	reg[IP] += 1;
 
 #define COMPARE_FLAGS(a, b)\
 	if (a<b){\
@@ -403,51 +406,51 @@ void interpret(){
 	while (1){
 		show_machine();
 		getc(stdin);
-		word ip = reg[IP];
+		word ip = PROGRAM_START+(reg[IP]*INSTRUCTION_WIDTH);
 		byte op = mem[ip];
 		switch (op){
-		case NOP: { reg[IP] += INSTRUCTION_WIDTH; } break;
-		case LDS: { byte b = NEXT; LOAD_REG(b, SHORT_LITERAL); reg[IP] += INSTRUCTION_WIDTH; } break;
-		case LDB: { byte b = NEXT; LOAD_REG(b, NEXT); reg[IP] += INSTRUCTION_WIDTH; } break;
+		case NOP: { reg[IP] += 1; } break;
+		case LDS: { byte b = NEXT; LOAD_REG(b, SHORT_LITERAL); reg[IP] += 1; } break;
+		case LDB: { byte b = NEXT; LOAD_REG(b, NEXT); reg[IP] += 1; } break;
 		case LDA: {
 				byte dst = NEXT; byte adr = NEXT; byte off = NEXT;
 				word a; ACCESS_REG(a, adr);
 				word o; ACCESS_REG(o, off);
 				LOAD_REG_ADDR(dst, a+o);
-				reg[IP] += INSTRUCTION_WIDTH;
+				reg[IP] += 1;
 			} break;
 		case LDI: {
 				byte dst = NEXT; byte adr = NEXT; byte off = NEXT;
 				word a; ACCESS_REG(a, adr);
 				LOAD_REG_ADDR(dst, a+off);
-				reg[IP] += INSTRUCTION_WIDTH;
+				reg[IP] += 1;
 			} break;
-		case STS: { byte src = NEXT; uint16_t adr = SHORT_LITERAL; STORE_REG(adr, src); reg[IP] += INSTRUCTION_WIDTH; } break;
+		case STS: { byte src = NEXT; uint16_t adr = SHORT_LITERAL; STORE_REG(adr, src); reg[IP] += 1; } break;
 		case STA: {
 				byte src = NEXT; byte adr = NEXT; byte off = NEXT;
 				word a; ACCESS_REG(a, adr);
 				word o; ACCESS_REG(o, off);
 				STORE_REG(a+o, src);
-				reg[IP] += INSTRUCTION_WIDTH;
+				reg[IP] += 1;
 			} break;
 		case STB: {
 				byte src = NEXT; byte adr = NEXT; byte off = NEXT;
 				word a; ACCESS_REG(a, adr);
 				STORE_REG(a+off, src);
-				reg[IP] += INSTRUCTION_WIDTH;
+				reg[IP] += 1;
 			} break;
 		case MOV: {
 				byte dst = NEXT; byte src = NEXT;
 				word s; ACCESS_REG(s, src);
 				LOAD_REG(dst, s);
-				reg[IP] += INSTRUCTION_WIDTH;
+				reg[IP] += 1;
 			} break;
 		case SWP: {
 				byte a = NEXT; byte b = NEXT;
 				word s; ACCESS_REG(s, a);
 				word d; ACCESS_REG(d, b);
 				LOAD_REG(a, d); LOAD_REG(b, s);
-				reg[IP] += INSTRUCTION_WIDTH;
+				reg[IP] += 1;
 			} break;
 		case ADS: { ALU_S(+); } break;
 		case SUS: { ALU_S(-); } break;
@@ -488,13 +491,13 @@ void interpret(){
 				word left; ACCESS_REG(left, a);
 				word right; ACCESS_REG(right, b);
 				COMPARE_FLAGS(left, right);
-				reg[IP] += INSTRUCTION_WIDTH;
+				reg[IP] += 1;
 			} break;
 		case CMS: {
 				byte a = NEXT; uint16_t right = SHORT_LITERAL;
 				word left; ACCESS_REG(left, a);
 				COMPARE_FLAGS(left, right);
-				reg[IP] += INSTRUCTION_WIDTH;
+				reg[IP] += 1;
 			} break;
 		case RET: {
 				byte tar = NEXT;
@@ -504,7 +507,7 @@ void interpret(){
 				reg[SP] = reg[CR];
 				POP_REG(REG(FULL,CR));
 				PUSH_REG(tar);
-				reg[IP] += INSTRUCTION_WIDTH;
+				reg[IP] += 1;
 			} break;
 		case REI: {
 				reg[SP] = reg[FP];
@@ -512,7 +515,7 @@ void interpret(){
 				POP_REG(REG(FULL,IP));
 				reg[SP] = reg[CR];
 				POP_REG(REG(FULL,CR));
-				reg[IP] += INSTRUCTION_WIDTH;
+				reg[IP] += 1;
 			} break;
 		case RES: {
 				uint16_t tar = SHORT_LITERAL;
@@ -521,49 +524,32 @@ void interpret(){
 				POP_REG(REG(FULL,IP))
 				reg[SP] = reg[CR];
 				POP_REG(REG(FULL,CR));
+				reg[SP] -= (sizeof(word)-1);
+				*(word*)(&mem[reg[SP]]) = tar;
 				reg[SP] -= 1;
-				*(uint16_t*)(&mem[reg[SP]]) = tar;
-				reg[SP] -= 1;
-				reg[IP] += INSTRUCTION_WIDTH;
-			} break;
-		case REB: {
-				byte tar = NEXT;
-				reg[SP] = reg[FP];
-				POP_REG(REG(FULL,FP))
-				POP_REG(REG(FULL,IP))
-				reg[SP] = reg[CR];
-				POP_REG(REG(FULL,CR));
-				*(byte*)(&mem[reg[SP]]) = tar;
-				reg[SP] -= 1;
-				reg[IP] += INSTRUCTION_WIDTH;
+				reg[IP] += 1;
 			} break;
 		case ESC: {
 				reg[SP] = reg[FP];
 				POP_REG(REG(FULL,FP))
 				reg[SP] = reg[CR];
 				POP_REG(REG(FULL,CR));
-				reg[IP] += INSTRUCTION_WIDTH;
+				reg[IP] += 1;
 			} break;
 		case CAL: {
 				PUSH_REG(REG(FULL,CR));
 				reg[CR] = reg[SP];
-				reg[IP] += INSTRUCTION_WIDTH;
+				reg[IP] += 1;
 			} break;
-		case PSH: { byte tar = NEXT; PUSH_REG(tar); reg[IP] += INSTRUCTION_WIDTH; } break;
+		case PSH: { byte tar = NEXT; PUSH_REG(tar); reg[IP] += 1; } break;
 		case PSS: {
 				uint16_t lit = SHORT_LITERAL;
+				reg[SP] -= (sizeof(word)-1);
+				*(word*)(&mem[reg[SP]]) = lit;
 				reg[SP] -= 1;
-				*(uint16_t*)(&mem[reg[SP]]) = lit;
-				reg[SP] -= 1;
-				reg[IP] += INSTRUCTION_WIDTH;
+				reg[IP] += 1;
 			} break;
-		case PSB: {
-				byte b = NEXT;
-				*(byte*)(&mem[reg[SP]]) = b;
-				reg[SP] -= 1;
-				reg[IP] += INSTRUCTION_WIDTH;
-			} break;
-		case POP: { byte tar = NEXT; POP_REG(tar); reg[IP] += INSTRUCTION_WIDTH; } break;
+		case POP: { byte tar = NEXT; POP_REG(tar); reg[IP] += 1; } break;
 		case BNC: {
 				byte mode = NEXT;
 				if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }
@@ -571,32 +557,32 @@ void interpret(){
 		case BNE: {
 				if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0))
 				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
-				else { reg[IP] += INSTRUCTION_WIDTH; }
+				else { reg[IP] += 1; }
 			} break;
 		case BEQ: {
 				if (((reg[SR] & ZERO) != 0) && ((reg[SR] & CARRY) == 0))
 				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
-				else { reg[IP] += INSTRUCTION_WIDTH; }
+				else { reg[IP] += 1; }
 			} break;
 		case BLT: {
 				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) != 0))
 				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
-				else { reg[IP] += INSTRUCTION_WIDTH; }
+				else { reg[IP] += 1; }
 			} break;
 		case BGT: {
 				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) == 0))
 				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
-				else { reg[IP] += INSTRUCTION_WIDTH; }
+				else { reg[IP] += 1; }
 			} break;
 		case BLE: {
 				if ((reg[SR] & ZERO) != (reg[SR] & CARRY))
 				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
-				else { reg[IP] += INSTRUCTION_WIDTH; }
+				else { reg[IP] += 1; }
 			} break;
 		case BGE: {
 				if ((reg[SR] & CARRY) == 0)
 				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
-				else { reg[IP] += INSTRUCTION_WIDTH; }
+				else { reg[IP] += 1; }
 			} break;
 		case JMP: {
 				byte mode = NEXT;
@@ -605,35 +591,35 @@ void interpret(){
 		case JNE: {
 				if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0))
 				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
-				else { reg[IP] += INSTRUCTION_WIDTH; }
+				else { reg[IP] += 1; }
 			} break;
 		case JEQ: {
 				if (((reg[SR] & ZERO) != 0) && ((reg[SR] & CARRY) == 0))
 				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
-				else { reg[IP] += INSTRUCTION_WIDTH; }
+				else { reg[IP] += 1; }
 			} break;
 		case JLT: {
 				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) != 0))
 				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
-				else { reg[IP] += INSTRUCTION_WIDTH; }
+				else { reg[IP] += 1; }
 			} break;
 		case JGT: {
 				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) == 0))
 				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
-				else { reg[IP] += INSTRUCTION_WIDTH; }
+				else { reg[IP] += 1; }
 			} break;
 		case JLE: {
 				if ((reg[SR] & ZERO) != (reg[SR] & CARRY))
 				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
-				else { reg[IP] += INSTRUCTION_WIDTH; }
+				else { reg[IP] += 1; }
 			} break;
 		case JGE: {
 				if ((reg[SR] & CARRY) == 0)
 				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
-				else { reg[IP] += INSTRUCTION_WIDTH; }
+				else { reg[IP] += 1; }
 			} break;
-		case INT: { reg[IP] += INSTRUCTION_WIDTH; } break;
-		case INR: { reg[IP] += INSTRUCTION_WIDTH; } break;
+		case INT: { reg[IP] += 1; } break;
+		case INR: { reg[IP] += 1; } break;
 		default:
 			printf("Unknown upcode\n");
 			return;
@@ -706,12 +692,10 @@ void setup_opcode_map(OPCODE_map* opmap){
 	OPCODE_map_insert(opmap, "RET", ops++);
 	OPCODE_map_insert(opmap, "REI", ops++);
 	OPCODE_map_insert(opmap, "RES", ops++);
-	OPCODE_map_insert(opmap, "REB", ops++);
 	OPCODE_map_insert(opmap, "ESC", ops++);
 	OPCODE_map_insert(opmap, "CAL", ops++);
 	OPCODE_map_insert(opmap, "PSH", ops++);
 	OPCODE_map_insert(opmap, "PSS", ops++);
-	OPCODE_map_insert(opmap, "PSB", ops++);
 	OPCODE_map_insert(opmap, "POP", ops++);
 	OPCODE_map_insert(opmap, "BNC", ops++);
 	OPCODE_map_insert(opmap, "BNE", ops++);
@@ -888,7 +872,6 @@ int64_t parse_number(compiler* const comp, byte max_bytes){
 	ASSERT_LOCAL(index > 0 && index <= max_chars, " Too many bytes provided in numeric\n");
 	comp->str.i += 1;
 	if (negative == 1){
-		printf("%lx\n",result);
 		ASSERT_LOCAL(((max_bytes==2) && (result <= 32767))||((max_bytes==1) && (result <= 127)), " Signed integer out of range\n");
 		return -result;
 	}
@@ -1141,12 +1124,10 @@ byte parse_opcode(compiler* const comp, OPCODE op){
 	case RET: { PARSE_R(RET_); } break;
 	case REI: { WRITE_INSTRUCTION({REI_}); } break;
 	case RES: { PARSE_S(RES_); } break;
-	case REB: { PARSE_B(REB_); } break;
 	case ESC: { WRITE_INSTRUCTION({ESC_}); } break;
 	case CAL: { WRITE_INSTRUCTION({CAL_}); } break;
 	case PSH: { PARSE_R(PSH_); } break;
 	case PSS: { PARSE_S(PSS_); } break;
-	case PSB: { PARSE_B(PSB_); } break;
 	case POP: { PARSE_R(POP_); } break;
 	case BNC: { PARSE_BRANCH(BNC_); } break;
 	case BNE: { PARSE_BRANCH(BNE_); } break;
@@ -1201,6 +1182,15 @@ byte check_pending_jumps(compiler* const comp){
 	return 0;
 }
 
+#define WRITE_TO_BLOCK(inst)\
+{\
+	byte inst_data[] = {inst};\
+	for (byte i = 0;i<4;++i){\
+		code->buffer[code->size] = inst_data[i];\
+		code->size += 1;\
+	}\
+}
+
 byte compile_cstr(compiler* const comp){
 	while (comp->str.i < comp->str.size){
 		char c = comp->str.text[comp->str.i];
@@ -1212,6 +1202,7 @@ byte compile_cstr(compiler* const comp){
 			comp->str.i += 1;
 			continue;
 		case '(':
+			comp->str.i += 1;
 			//TODO compound expression
 			return 1;
 		}
@@ -1327,7 +1318,7 @@ void setup_registers(){
 	reg[SP] = MEMORY_SIZE-1;
 	reg[FP] = MEMORY_SIZE-1;
 	reg[CR] = MEMORY_SIZE-1;
-	reg[IP] = PROGRAM_START;
+	reg[IP] = 0;
 }
 
 void flash_rom(byte* buffer, uint64_t size){
@@ -1337,78 +1328,34 @@ void flash_rom(byte* buffer, uint64_t size){
 }
 
 void demo(){
-	byte rom[] = {
-		LDS_(REG(FULL, R7), 0x210),
-		BNC_(0, REG(FULL, R7)),
-		POP_(REG(L16, R2)),
-		NOP_,
-		LDS_(REG(FULL, R0), 0xCAFE),
-		LDS_(REG(FULL, R1), 0xDEAD),
-		LDB_(REG(LO, R2), 0xFE),
-		LDB_(REG(HI, R2), 0xAF),
-		LDS_(REG(L16, R3), 0xDEAD),
-		LDS_(REG(LM16, R3), 0xBEEF),
-		LDS_(REG(RM16, R3), 0xDEAF),
-		LDS_(REG(R16, R3), 0xCAFE),
-		LDS_(REG(HALF, R4), 0x1337),
-		MOV_(REG(HALF, R4), REG(FULL, R3)),
-		LDB_(REG(FULL, R6), 0x1),
-		ADD_(REG(FULL, R5), REG(HALF, R2), REG(FULL, R6)),
-		ADS_(REG(FULL, R5), 0x2),
-		ADI_(REG(FULL, R6), REG(FULL, R6)),
-		INI_(REG(FULL, R6)),
-		COI_(REG(FULL, R6)),
-		COM_(REG(HI, R6), REG(LO, R6)),
-		INV_(REG(LO, R6), REG(HI, R6)),
-		CMP_(REG(LO, R5), REG(LO, R6)),
-		JNE_(1, -INSTRUCTION_WIDTH),
-		JEQ_(1, INSTRUCTION_WIDTH*4),
-		CMP_(REG(LO, R6), REG(HI, R6)),
-		JLE_(1, -INSTRUCTION_WIDTH),
-		JGT_(1, INSTRUCTION_WIDTH*4),
-		CMS_(REG(R16, R2), 0xbaff),
-		JGE_(1, -INSTRUCTION_WIDTH),
-		JLT_(1, INSTRUCTION_WIDTH*-5),
-		PSH_(REG(FULL, R3)),
-		PSS_(0x1337),
-		PSS_(0xC0DE),
-		PSB_(0xAB),
-		PSB_(0xCD),
-		PSB_(0xEF),
-		PSB_(0x64),
-		POP_(REG(FULL, R0)),
-		POP_(REG(FULL, R1)),
-		LDS_(REG(FULL, R2), 688),
-		BNC_(0, REG(FULL, R2)),
-		POP_(REG(FULL, R3)),
-		RES_(0xFACE),
-		PSH_(REG(FULL, R6)),
-		RET_(REG(FULL, R6)),
-		NOP_, NOP_, NOP_, NOP_
-	};
 	byte cc[] = {
-		LDS_(REG(L16, R3), 0xDEAD),
-		LDS_(REG(LM16, R3), 0xBEEF),
-		LDS_(REG(RM16, R3), 0xFACE),
-		LDS_(REG(R16, R3), 0xCAFE),
+		CAL_,
+			LDS_(REG(L16, R3), 0xDEAD),
+			LDS_(REG(LM16, R3), 0xBEEF),
+			LDS_(REG(RM16, R3), 0xFACE),
+			LDS_(REG(R16, R3), 0xCAFE),
 		PSH_(REG(FULL, R3)),
-		LDS_(REG(FULL, LR), 0x224),
-		BNC_(0, REG(FULL, LR)),
-		POP_(REG(FULL, R0)),
+			LDS_(REG(L16, R3), 0xC0FF),
+			LDS_(REG(LM16, R3), 0xEEFA),
+			LDS_(REG(RM16, R3), 0xCEDD),
+			LDS_(REG(R16, R3), 0xEAD5),
+		PSH_(REG(FULL, R3)),
+		BNC_(1, 0x3),
+		JMP_(1, 0x9),
 		NOP_,
-		LDI_(REG(FULL, R1), REG(FULL, FP), 0x11),
-		LDS_(REG(L16, R4), 0xBEEF),
-		LDS_(REG(LM16, R4), 0xCAFE),
-		LDS_(REG(RM16, R4), 0xDEAF),
-		LDS_(REG(R16, R4), 0xFACE),
-		XOR_(REG(FULL, R2), REG(FULL, R1), REG(FULL, R4)),
-		STB_(REG(FULL, R2), REG(FULL, FP), 0x11),
-		LDI_(REG(FULL, R1), REG(FULL, FP), 0x11),
-		RET_(REG(FULL, R1)),
+			MOV_(REG(FULL, R0), REG(FULL, FP)),
+			ADS_(REG(FULL, R0), 0x11),
+			LDI_(REG(HALF, R2), REG(FULL, R0), 0x0),
+			ADS_(REG(FULL, R0), 0x4),
+			CMP_(REG(FULL, R0), REG(FULL, CR)),
+			JLT_(1, -0x3),
+			RET_(REG(FULL, R2)),
+		POP_(REG(FULL, R4)),
+		LDS_(REG(FULL, R2), 0xDEAD),
 		NOP_, NOP_, NOP_, NOP_
 	};
 	setup_registers();
-	flash_rom(cc, 1+(64*INSTRUCTION_WIDTH));
+	flash_rom(cc, 128);
 	interpret();
 	return;
 }
