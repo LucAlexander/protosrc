@@ -70,38 +70,106 @@ typedef enum {
 } STATUS_FLAG;
 
 typedef struct {
-	byte* text;
+	char* text;
 	word size;
 	word i;
 } string;
 
-typedef struct label_chain label_chain;
-
-typedef struct label_chain {
-	union {
-		struct {
-			label_chain* next;
-			word ref_location;
-		} pending;
-		struct {
-			word address;
-		} filled;
-	} data;
-	enum {
-		PENDING_LINK,
-		FILLED_LINK
-	} tag;
-} label_chain;
-
-MAP_DEF(label_chain)
-
-#define DEFAULT_BLOCK_CAPACITY 4
+typedef enum {
+	OPCODE_TOKEN,
+	REGISTER_TOKEN,
+	PART_TOKEN,
+	OPEN_CALL_TOKEN='(',
+	CLOSE_CALL_TOKEN=')',
+	OPEN_PUSH_TOKEN='{',
+	CLOSE_PUSH_TOKEN='}',
+	SUBLABEL_TOKEN='.',
+	LABEL_TOKEN=':',
+	SHORT_HEX_NUMERIC_TOKEN,
+	BYTE_HEX_NUMERIC_TOKEN,
+	IDENTIFIER_TOKEN,
+	NONE_TOKEN
+} TOKEN;
 
 typedef struct {
-	byte* buffer;
-	word size;
-	word capacity;
-} call_block;
+	char* text;
+	union {
+		int64_t number;
+		OPCODE opcode;
+		REGISTER reg;
+		REG_PARTITION part;
+	} data;
+	TOKEN type;
+	byte size;
+} token;
+
+typedef struct code_tree code_tree;
+typedef struct data_tree data_tree;
+typedef struct call_tree call_tree;
+
+typedef struct data_tree {
+	enum {
+		BYTE_DATA,
+		NEST_DATA,
+		CODE_DATA
+	} type;
+	union {
+		struct {
+			byte* raw;
+			word size;
+		} bytes;
+		data_tree* nest;
+		code_tree* code;
+	} data;
+	data_tree* next;
+} data_tree;
+
+typedef struct call_tree {
+	enum {
+		CALL_ARG,
+		PUSH_ARG,
+		REG_ARG,
+		LABEL_ARG,
+		SUBLABEL_ARG,
+		NUMERIC_ARG
+	} type;
+	union {
+		call_tree* call;
+		data_tree* push;
+		byte reg;
+		token label;
+		int64_t number;
+	} data;
+	call_tree* next;
+} call_tree;
+
+#define BLOCK_START_SIZE 8
+
+typedef struct code_tree {
+	enum {
+		INSTRUCTION_BLOCK,
+		INSTRUCTION_JUMP,
+		INSTRUCTION_SUBJUMP,
+		CALL_BLOCK,
+		PUSH_BLOCK
+	} type;
+	union {
+		struct {
+			byte* instructions;
+			word instruction_count;
+		} code;
+		data_tree* push;
+		call_tree* call;
+	} data;
+	enum {
+		NOT_LABELED,
+		LABELED,
+		SUBLABELED
+	} labeling;
+	token label;
+	token dest;
+	code_tree* next;
+} code_tree;
 
 typedef struct {
 	string str;
@@ -109,9 +177,39 @@ typedef struct {
 	OPCODE_map opmap;
 	REGISTER_map regmap;
 	REG_PARTITION_map partmap;
-	label_chain_map chain;
+	token* tokens;
+	word token_count;
+	code_tree* ir;
 	pool* mem;
 	char* err;
 } compiler;
+
+void show_registers();
+void show_mem();
+void show_machine();
+void interpret();
+void setup_opcode_map(OPCODE_map* opmap);
+void setup_register_map(REGISTER_map* regmap);
+void setup_partition_map(REG_PARTITION_map* partmap);
+byte whitespace(char c);
+byte lex_cstr(compiler* const comp);
+word parse_register(compiler* const comp, word token_index, byte* r);
+word parse_call_block(compiler* const comp, word token_index, call_tree* data);
+word parse_byte_sequence(compiler* const comp, word token_index, data_tree* data);
+word parse_push_block(compiler* const comp, word token_index, data_tree* data);
+word parse_3reg(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
+word parse_2reg(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
+word parse_2reg_byte(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
+word parse_reg_short(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
+word parse_instruction_block(compiler* const comp, word token_index, code_tree* code);
+word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN terminator);
+byte parse_tokens(compiler* const comp);
+byte compile_cstr(compiler* const comp);
+void compile_file(char* infile, char* outfile);
+void setup_registers();
+void flash_rom(byte* buffer, uint64_t size);
+void demo();
+void show_binary(char* filename);
+void run_rom(char* filename);
 
 #endif

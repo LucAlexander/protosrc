@@ -9,12 +9,10 @@
 MAP_IMPL(OPCODE)
 MAP_IMPL(REGISTER)
 MAP_IMPL(REG_PARTITION)
-MAP_IMPL(label_chain)
 
 #define SHORT(lit) (lit&0xFF00)>>8, lit&0xFF
 #define NOP_                   NOP, 0,    0, 0
 #define LDS_(dest, lit)        LDS, dest, SHORT(lit)
-#define LDB_(dest, lit)        LDB, dest, lit, 0
 #define LDA_(dest, addr, off)  LDA, dest, addr, off
 #define LDI_(dest, addr, lit)  LDI, dest, addr, lit
 #define STS_(src, lit)         STS, src,  SHORT(lit)
@@ -66,6 +64,11 @@ MAP_IMPL(label_chain)
 #define PSH_(tar)              PSH, tar,  0, 0
 #define PSS_(tar)              PSS, SHORT(tar), 0
 #define POP_(dst)              POP, dst,  0, 0
+/* MODES
+ * 0: jump by relative register stored offset
+ * 1: jump by relative short literal offset
+ * 2: jump to register stored address
+*/
 #define BNC_(mode, addr)       BNC, mode, SHORT(addr)
 #define BNE_(mode, addr)       BNE, mode, SHORT(addr)
 #define BEQ_(mode, addr)       BEQ, mode, SHORT(addr)
@@ -384,7 +387,14 @@ void show_machine(){
 	reg[FP] = reg[SP];\
 	ip += 1;\
 	byte adr = NEXT;\
-	ACCESS_REG(reg[IP], adr);
+	word val; ACCESS_REG(val, adr);\
+	reg[IP] += *(int64_t*)(&val);
+
+#define BRANCH_LINK_TO\
+	PUSH_REG(REG(FULL, IP));\
+	PUSH_REG(REG(FULL, FP));\
+	reg[FP] = reg[SP];\
+	reg[IP] = reg[CR];
 
 #define BRANCH_JUMP\
 	PUSH_REG(REG(FULL, IP));\
@@ -396,7 +406,11 @@ void show_machine(){
 #define JUMP_REG\
 	ip += 1;\
 	byte adr = NEXT;\
-	ACCESS_REG(reg[IP], adr);
+	word val; ACCESS_REG(val, adr);\
+	reg[IP] += *(int64_t*)(&val);
+
+#define JUMP_REG_TO\
+	reg[IP] = reg[CR];\
 
 #define JUMP\
 	int16_t offset = SHORT_LITERAL;\
@@ -411,7 +425,6 @@ void interpret(){
 		switch (op){
 		case NOP: { reg[IP] += 1; } break;
 		case LDS: { byte b = NEXT; LOAD_REG(b, SHORT_LITERAL); reg[IP] += 1; } break;
-		case LDB: { byte b = NEXT; LOAD_REG(b, NEXT); reg[IP] += 1; } break;
 		case LDA: {
 				byte dst = NEXT; byte adr = NEXT; byte off = NEXT;
 				word a; ACCESS_REG(a, adr);
@@ -552,70 +565,120 @@ void interpret(){
 		case POP: { byte tar = NEXT; POP_REG(tar); reg[IP] += 1; } break;
 		case BNC: {
 				byte mode = NEXT;
-				if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }
+				if (mode == 0) { BRANCH_LINK; }
+				else if (mode == 1) { BRANCH_JUMP; }
+				else { BRANCH_LINK_TO; }
 			} break;
 		case BNE: {
-				if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0))
-				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
+				if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0)){
+					byte mode = NEXT;
+					if (mode == 0) { BRANCH_LINK; }
+					else if (mode == 1) { BRANCH_JUMP; }
+					else { BRANCH_LINK_TO; }
+				}
 				else { reg[IP] += 1; }
 			} break;
 		case BEQ: {
-				if (((reg[SR] & ZERO) != 0) && ((reg[SR] & CARRY) == 0))
-				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
+				if (((reg[SR] & ZERO) != 0) && ((reg[SR] & CARRY) == 0)){
+					byte mode = NEXT;
+					if (mode == 0) { BRANCH_LINK; }
+					else if (mode == 1) { BRANCH_JUMP; }
+					else { BRANCH_LINK_TO; }
+				}
 				else { reg[IP] += 1; }
 			} break;
 		case BLT: {
-				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) != 0))
-				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
+				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) != 0)){
+					byte mode = NEXT;
+					if (mode == 0) { BRANCH_LINK; }
+					else if (mode == 1) { BRANCH_JUMP; }
+					else { BRANCH_LINK_TO; }
+				}
 				else { reg[IP] += 1; }
 			} break;
 		case BGT: {
-				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) == 0))
-				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
+				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) == 0)){
+					byte mode = NEXT;
+					if (mode == 0) { BRANCH_LINK; }
+					else if (mode == 1) { BRANCH_JUMP; }
+					else { BRANCH_LINK_TO; }
+				}
 				else { reg[IP] += 1; }
 			} break;
 		case BLE: {
-				if ((reg[SR] & ZERO) != (reg[SR] & CARRY))
-				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
+				if ((reg[SR] & ZERO) != (reg[SR] & CARRY)){
+					byte mode = NEXT;
+					if (mode == 0) { BRANCH_LINK; }
+					else if (mode == 1) { BRANCH_JUMP; }
+					else { BRANCH_LINK_TO; }
+				}
 				else { reg[IP] += 1; }
 			} break;
 		case BGE: {
-				if ((reg[SR] & CARRY) == 0)
-				{ byte mode = NEXT; if (mode == 0) { BRANCH_LINK; } else { BRANCH_JUMP; }}
+				if ((reg[SR] & CARRY) == 0){
+					byte mode = NEXT;
+					if (mode == 0) { BRANCH_LINK; }
+					else if (mode == 1) { BRANCH_JUMP; }
+					else { BRANCH_LINK_TO; }
+				}
 				else { reg[IP] += 1; }
 			} break;
 		case JMP: {
 				byte mode = NEXT;
-				if (mode == 0) { JUMP_REG; } else { JUMP; }
+				if (mode == 0) { JUMP_REG; } else if (mode == 1) { JUMP; } else { JUMP_REG_TO; }
 			} break;
 		case JNE: {
-				if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0))
-				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
+				if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0)){
+					byte mode = NEXT;
+					if (mode == 0) { JUMP_REG; }
+					else if (mode == 1) { JUMP; }
+					else { JUMP_REG_TO; }
+				}
 				else { reg[IP] += 1; }
 			} break;
 		case JEQ: {
-				if (((reg[SR] & ZERO) != 0) && ((reg[SR] & CARRY) == 0))
-				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
+				if (((reg[SR] & ZERO) != 0) && ((reg[SR] & CARRY) == 0)){
+					byte mode = NEXT;
+					if (mode == 0) { JUMP_REG; }
+					else if (mode == 1) { JUMP; }
+					else { JUMP_REG_TO; }
+				}
 				else { reg[IP] += 1; }
 			} break;
 		case JLT: {
-				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) != 0))
-				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
+				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) != 0)){
+					byte mode = NEXT;
+					if (mode == 0) { JUMP_REG; }
+					else if (mode == 1) { JUMP; }
+					else { JUMP_REG_TO; }
+				}
 				else { reg[IP] += 1; }
 			} break;
 		case JGT: {
-				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) == 0))
-				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
+				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) == 0)){
+					byte mode = NEXT;
+					if (mode == 0) { JUMP_REG; }
+					else if (mode == 1) { JUMP; }
+					else { JUMP_REG_TO; }
+				}
 				else { reg[IP] += 1; }
 			} break;
 		case JLE: {
-				if ((reg[SR] & ZERO) != (reg[SR] & CARRY))
-				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
+				if ((reg[SR] & ZERO) != (reg[SR] & CARRY)){
+					byte mode = NEXT;
+					if (mode == 0) { JUMP_REG; }
+					else if (mode == 1) { JUMP; }
+					else { JUMP_REG_TO; }
+				}
 				else { reg[IP] += 1; }
 			} break;
 		case JGE: {
-				if ((reg[SR] & CARRY) == 0)
-				{ byte mode = NEXT; if (mode == 0) { JUMP_REG; } else { JUMP; }}
+				if ((reg[SR] & CARRY) == 0){
+					byte mode = NEXT;
+					if (mode == 0) { JUMP_REG; }
+					else if (mode == 1) { JUMP; }
+					else { JUMP_REG_TO; }
+				}
 				else { reg[IP] += 1; }
 			} break;
 		case INT: { reg[IP] += 1; } break;
@@ -645,7 +708,6 @@ void setup_opcode_map(OPCODE_map* opmap){
 	}
 	OPCODE_map_insert(opmap, "NOP", ops++);
 	OPCODE_map_insert(opmap, "LDS", ops++);
-	OPCODE_map_insert(opmap, "LDB", ops++);
 	OPCODE_map_insert(opmap, "LDA", ops++);
 	OPCODE_map_insert(opmap, "LDI", ops++);
 	OPCODE_map_insert(opmap, "STS", ops++);
@@ -757,483 +819,591 @@ byte whitespace(char c){
 	return (c=='\n' || c==' ' || c=='\r' || c == '\t');
 }
 
-byte parse_partition(compiler* const comp){
+byte lex_cstr(compiler* const comp){
+	comp->tokens = pool_request(comp->mem, sizeof(token));
+	comp->token_count = 0;
 	while (comp->str.i < comp->str.size){
+		token* t = &comp->tokens[comp->token_count];
+		t->text = &comp->str.text[comp->str.i];
+		t->size = 1;
+		t->type = NONE_TOKEN;
+		byte negative = 0;
 		char c = comp->str.text[comp->str.i];
+		comp->str.i += 1;
 		switch (c){
 		case ' ':
 		case '\n':
 		case '\t':
 		case '\r':
+			continue;
+		case OPEN_CALL_TOKEN:
+		case CLOSE_CALL_TOKEN:
+		case OPEN_PUSH_TOKEN:
+		case CLOSE_PUSH_TOKEN:
+			t->type = c;
+			pool_request(comp->mem, sizeof(token));
+			comp->token_count += 1;
+			continue;
+		case '-':
+			c = comp->str.text[comp->str.i];
+			ASSERT_LOCAL(c=='0', " Expected numeric after '-'\n");
 			comp->str.i += 1;
+			t->size += 1;
+			negative = 1;
+		case '0':
+			c = comp->str.text[comp->str.i];
+			ASSERT_LOCAL(c == 'x' || c == 'X', " Malformed numeric prefix\n");
+			comp->str.i += 1;
+			t->size += 1;
+			int64_t number = 0;
+			byte index = 0;
+			while (comp->str.i < comp->str.size && index < 4){
+				c = comp->str.text[comp->str.i];
+				byte converted = 0;
+				if (c >= '0' && c <= '9'){
+					converted = (c - '0');
+				}
+				else if (c >= 'a' && c <= 'f'){
+					converted = (c - 'a')+10;
+				}
+				else if (c >= 'A' && c <= 'F'){
+					converted = (c - 'A')+10;
+				}
+				else{
+					break;
+				}
+				number = (number << 4) | (converted & 0xF);
+				comp->str.i += 1;
+				index += 1;
+				t->size += 1;
+			}
+			if (index <= sizeof(byte)*2){
+				t->type = BYTE_HEX_NUMERIC_TOKEN;
+				if (negative == 1){
+				   	if (number > 127){
+						t->type = SHORT_HEX_NUMERIC_TOKEN;
+					}
+					number *= -1;
+				}
+			}
+			else if (index < sizeof(uint16_t)*2){
+				t->type = SHORT_HEX_NUMERIC_TOKEN;
+				if (negative == 1){
+					ASSERT_LOCAL(number <= 32767, " Too many bytes provided for negative short numeric\n");
+					number *= -1;
+				}
+			}
+			else{
+				ASSERT_LOCAL(0, " Too many bytes provided for short hex numeric\n");
+			}
+			t->data.number = number;
+			pool_request(comp->mem, sizeof(token));
+			comp->token_count += 1;
 			continue;
 		}
-		uint32_t hash = 5381;
-		int16_t s;
-		word start = comp->str.i;
+		ASSERT_LOCAL(c == '_' || isalpha(c), " Expected identifier\n");
+		t->type = IDENTIFIER_TOKEN;
+		uint32_t hash = ((5381<<5)+hash)+c;
 		while (comp->str.i < comp->str.size){
 			c = comp->str.text[comp->str.i];
-			if (whitespace(c)){
+			if (!isalnum(c) && c != '_'){
 				break;
 			}
-			s = comp->str.text[comp->str.i];
-			hash = ((hash<<5)+hash)+s;
+			t->size += 1;
 			comp->str.i += 1;
+			hash = ((hash<<5)+hash)+c;
 		}
 		char copy = comp->str.text[comp->str.i];
 		comp->str.text[comp->str.i] = '\0';
-		REG_PARTITION* r = REG_PARTITION_map_access_by_hash(&comp->partmap, hash, (const char* const)comp->str.text+start);
-		comp->str.text[comp->str.i] = copy;
-		comp->str.i += 1;
-		if (r == NULL){
-			return 1;
-		}
-		return *r;
-	}
-	ASSERT_LOCAL(0, "Unexpected EOF\n");
-}
-
-word parse_register(compiler* const comp){
-	while (comp->str.i < comp->str.size){
-		char c = comp->str.text[comp->str.i];
-		switch (c){
-		case ' ':
-		case '\n':
-		case '\t':
-		case '\r':
-			comp->str.i += 1;
+		REGISTER* r = REGISTER_map_access_by_hash(&comp->regmap, hash, (const char* const)t->text);
+		if (r != NULL){
+			t->type = REGISTER_TOKEN;
+			t->data.reg = *r;
+			comp->str.text[comp->str.i] = copy;
+			pool_request(comp->mem, sizeof(token));
+			comp->token_count += 1;
 			continue;
 		}
-		uint32_t hash = 5381;
-		int16_t s;
-		word start = comp->str.i;
-		while (comp->str.i < comp->str.size){
-			c = comp->str.text[comp->str.i];
-			if (c==SEP_CHAR){
-				break;
-			}
-			if (whitespace(c)){
-				break;
-			}
-			s = comp->str.text[comp->str.i];
-			hash = ((hash<<5)+hash)+s;
-			comp->str.i += 1;
+		OPCODE* o = OPCODE_map_access_by_hash(&comp->opmap, hash, (const char* const)t->text);
+		if (o != NULL){
+			t->type = OPCODE_TOKEN;
+			t->data.opcode = *o;
+			comp->str.text[comp->str.i] = copy;
+			pool_request(comp->mem, sizeof(token));
+			comp->token_count += 1;
+			continue;
 		}
-		char copy = comp->str.text[comp->str.i];
-		comp->str.text[comp->str.i] = '\0';
-		REGISTER* r = REGISTER_map_access_by_hash(&comp->regmap, hash, (const char* const)comp->str.text+start);
+		REG_PARTITION* p = REG_PARTITION_map_access_by_hash(&comp->partmap, hash, (const char* const)t->text);
+		if (p != NULL){
+			t->type = PART_TOKEN;
+			t->data.part = *p;
+			comp->str.text[comp->str.i] = copy;
+			pool_request(comp->mem, sizeof(token));
+			comp->token_count += 1;
+			continue;
+		}
 		comp->str.text[comp->str.i] = copy;
-		comp->str.i += 1;
-		if (r == NULL) {
-			snprintf(comp->err, ERROR_BUFFER, " Could not parse register name\n");
-			return start;
-		}
-		return *r;
+		pool_request(comp->mem, sizeof(token));
+		comp->token_count += 1;
 	}
-	ASSERT_LOCAL(0, "Unexpected EOF\n");
+	return 0;
 }
 
-int64_t parse_number(compiler* const comp, byte max_bytes){
-	char c = comp->str.text[comp->str.i];
-	comp->str.i += 1;
-	byte negative = 0;
-	if (c=='-'){
-		negative = 1;
-		c = comp->str.text[comp->str.i];
-		comp->str.i += 1;
+word parse_register(compiler* const comp, word token_index, byte* r){
+	token t = comp->tokens[token_index];
+	ASSERT_LOCAL(t.type == REGISTER_TOKEN, " Register must start with register\n");
+	byte base = t.data.reg;
+	token_index += 1;
+	t = comp->tokens[token_index];
+	if (t.type != PART_TOKEN){
+		*r = REG(FULL, base);
+		return token_index;
 	}
-	ASSERT_LOCAL(c=='0', "Expected numeric\n");
-	c = comp->str.text[comp->str.i];
-	comp->str.i += 1;
-	ASSERT_LOCAL(c=='x' || c == 'X', "Expected numeric\n");
-	int64_t result = 0;
-	word index = 0;
-	byte max_chars = max_bytes*2;
-	while (comp->str.i < comp->str.size){
-		c = comp->str.text[comp->str.i];
-		if (whitespace(c)){
-			break;
-		}
-		byte converted = 0;
-		if (c >= '0' && c <= '9'){
-			converted = (c - '0');
-		}
-		else if (c >= 'a' && c <= 'f'){
-			converted = (c - 'a')+10;
-		}
-		else if (c >= 'A' && c <= 'F'){
-			converted = (c - 'A')+10;
-		}
-		else ASSERT_LOCAL(0, " Expected hex digit in numeric\n");
-		result = (result << 4) | (converted & 0xF);
-		comp->str.i += 1;
-		index += 1;
-	}
-	ASSERT_LOCAL(index > 0 && index <= max_chars, " Too many bytes provided in numeric\n");
-	comp->str.i += 1;
-	if (negative == 1){
-		ASSERT_LOCAL(((max_bytes==2) && (result <= 32767))||((max_bytes==1) && (result <= 127)), " Signed integer out of range\n");
-		return -result;
-	}
-	return result;
+	token_index += 1;
+	*r = REG(t.data.part, base);
+	return token_index;
 }
 
-uint16_t parse_short(compiler* const comp){
-	return parse_number(comp, 2);
-}
-
-byte parse_byte(compiler* const comp){
-	return parse_number(comp, 1);
-}
-
-#define WRITE_IMPUTATION(adr, data)\
-{\
-	byte inst[] = {data};\
-	for (byte i = 0;i<4;++i){\
-		comp->buf.text[adr++] = inst[i];\
-	}\
-}
-
-byte add_label_link(compiler* const comp, const char* const label, word len){
-	label_chain* link = label_chain_map_access(&comp->chain, label);
-	word address = comp->buf.i+PROGRAM_START;
-	if (link == NULL){
-		link = pool_request(comp->mem, sizeof(label_chain));
-		link->data.filled.address = address;
-		link->tag = FILLED_LINK;
-		char* key = pool_request(comp->mem, len);
-		strncpy(key, label, len);
-		label_chain_map_insert(&comp->chain, key, link);
-		return 0;
+word parse_call_block(compiler* const comp, word token_index, call_tree* data){
+	call_tree* last = data;
+	while (token_index < comp->token_count){
+		token t = comp->tokens[token_index];
+		token_index += 1;
+		switch (t.type){
+		case SHORT_HEX_NUMERIC_TOKEN:
+		case BYTE_HEX_NUMERIC_TOKEN:
+			data->type = NUMERIC_ARG;
+			data->data.number = t.data.number;
+			data->next = pool_request(comp->mem, sizeof(call_tree));
+			last = data;
+			data = data->next;
+			data->next = NULL;
+			continue;
+		case OPEN_PUSH_TOKEN:
+			data->type = PUSH_ARG;
+			data->data.push = pool_request(comp->mem, sizeof(data_tree));
+			data->data.push->next = NULL;
+			token_index = parse_push_block(comp, token_index, data->data.push);
+			ASSERT_ERR(0);
+			data->next = pool_request(comp->mem, sizeof(call_tree));
+			last = data;
+			data = data->next;
+			data->next = NULL;
+			continue;
+		case OPEN_CALL_TOKEN:
+			data->type = CALL_ARG;
+			data->data.call = pool_request(comp->mem, sizeof(call_tree));
+			data->data.call->next = NULL;
+			token_index = parse_call_block(comp, token_index, data->data.call);
+			ASSERT_ERR(0);
+			data->next = pool_request(comp->mem, sizeof(call_tree));
+			last = data;
+			data = data->next;
+			data->next = NULL;
+			continue;
+		case CLOSE_CALL_TOKEN:
+			last->next = NULL;
+			return token_index;
+		case REGISTER_TOKEN:
+			data->type = REG_ARG;
+			data->data.reg = t.data.reg;
+			token_index = parse_register(comp, token_index-1, &data->data.reg);
+			data->next = pool_request(comp->mem, sizeof(call_tree));
+			last = data;
+			data = data->next;
+			data->next = NULL;
+			continue;
+		case SUBLABEL_TOKEN:
+			t = comp->tokens[token_index];
+			ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN, " Expected sublabel identifier following '.' token\n");
+			token_index += 1;
+			data->type = SUBLABEL_ARG;
+			data->data.label = t;
+			data->next = pool_request(comp->mem, sizeof(call_tree));
+			last = data;
+			data = data->next;
+			data->next = NULL;
+			continue;
+		case IDENTIFIER_TOKEN:
+			data->type = LABEL_ARG;
+			data->data.label = t;
+			data->next = pool_request(comp->mem, sizeof(call_tree));
+			last = data;
+			data = data->next;
+			data->next = NULL;
+			continue;
+		default:
+			ASSERT_LOCAL(0, " Unexpected call argument token\n");
+		}
 	}
-	ASSERT_LOCAL(link->tag == PENDING_LINK, " Duplicate jump labels\n");
-	while (link != NULL){
-		word loc = (link->data.pending.ref_location+PROGRAM_START);
-		int32_t offset = address - loc;
-		loc -= PROGRAM_START;
-		label_chain* next = link->data.pending.next;
-		link->tag = FILLED_LINK;
-		if (offset > 32767 || offset < -32767){
-			word nop = loc-(INSTRUCTION_WIDTH*4);
-			WRITE_IMPUTATION(nop, LDS_(REG(L16, LR), address>>48));
-			WRITE_IMPUTATION(nop, LDS_(REG(LM16, LR), address>>32));
-			WRITE_IMPUTATION(nop, LDS_(REG(RM16, LR), address>>16));
-			WRITE_IMPUTATION(nop, LDS_(REG(R16, LR), address));
-			comp->buf.text[loc+1] = 0;
-			comp->buf.text[loc+2] = 0;
-			comp->buf.text[loc+3] = REG(FULL, LR);
+	ASSERT_LOCAL(0, " Unexpected end to procedure call\n");
+	return 0;
+}
+
+word parse_byte_sequence(compiler* const comp, word token_index, data_tree* data){
+	data->data.bytes.size = 0;
+	word initial_index = token_index;
+	while (token_index < comp->token_count){
+		token t = comp->tokens[token_index];
+		if (t.type == SHORT_HEX_NUMERIC_TOKEN){
+			data->data.bytes.size += 2;
+		}
+		else if (t.type != BYTE_HEX_NUMERIC_TOKEN){
+			data->data.bytes.size += 1;
 		}
 		else{
-			comp->buf.text[loc+1] = 1;
-			comp->buf.text[loc+2] = ((offset&0xFF00) >> 8);
-			comp->buf.text[loc+3] = offset&0xFF;
+			break;
 		}
-		link = next;
+		token_index += 1;
 	}
-	return 0;
-}
-
-word request_label(compiler* const comp, const char* const label, word len){
-	label_chain* link = label_chain_map_access(&comp->chain, label);
-	if (link == NULL){
-		const char* c = label;
-		ASSERT_LOCAL(!isdigit(*c), " First character of jump label cannot be numeric\n");
-		for (byte i = 0;i<len;++i){
-			ASSERT_LOCAL(isalnum(*c) || (*c) == '_', " Jump label must be contain alphanumeric characters and underscores only\n");
-			c += 1;
-		}
-		byte impute_size = 4*INSTRUCTION_WIDTH;
-		for (byte i = 0;i<impute_size;++i){
-			comp->buf.text[comp->buf.i++] = 0;
-		}
-		link = pool_request(comp->mem, sizeof(label_chain));
-		link->data.pending.next=NULL;
-		link->data.pending.ref_location=comp->buf.i;
-		link->tag = PENDING_LINK;
-		char* key = pool_request(comp->mem, len);
-		strncpy(key, label, len);
-		label_chain_map_insert(&comp->chain, key, link);
-		return 0;
-	}
-	if (link->tag == PENDING_LINK){
-		byte impute_size = 4*INSTRUCTION_WIDTH;
-		for (byte i = 0;i<impute_size;++i){
-			comp->buf.text[comp->buf.i++] = 0;
-		}
-		label_chain* new_link = pool_request(comp->mem, sizeof(label_chain));
-		new_link = pool_request(comp->mem, sizeof(label_chain));
-		new_link->data.pending.next=link->data.pending.next;
-		new_link->data.pending.ref_location=comp->buf.i;
-		new_link->tag = PENDING_LINK;
-		link->data.pending.next = new_link;
-		return 0;
-	}
-	return link->data.filled.address;
-}
-
-byte parse_label(compiler* const comp, char* const label){
-	char* c = label;
-	ASSERT_LOCAL(!isdigit(*c), " First character of jump label cannot be numeric\n");
-	for (;*(c+1) != '\0';++c){
-		ASSERT_LOCAL(isalnum(*c) || (*c) == '_', " Jump label must be contain alphanumeric characters and underscores only\n");
-	}
-	ASSERT_LOCAL((*c) == ':', " Jump label must end with ':'");
-	(*c) = '\0';
-	word len = c-label;
-	add_label_link(comp, label, len);
-	(*c) = ':';
-	return 1;
-}
-
-#define WRITE_INSTRUCTION(li)\
-{\
-	byte inst[] = li;\
-	for (byte i = 0;i<4;++i){\
-		comp->buf.text[comp->buf.i] = inst[i];\
-		comp->buf.i += 1;\
-	}\
-}
-
-byte parse_full_register(compiler* const comp){
-	byte r = parse_register(comp);
-	ASSERT_ERR(r);
-	byte p = parse_partition(comp);
-	return REG(p, r);
-}
-
-#define PARSE_R(opc)\
-	byte r = parse_full_register(comp);\
-	WRITE_INSTRUCTION({opc(r)});
-#define PARSE_S(opc)\
-	uint16_t s = parse_short(comp);\
-	WRITE_INSTRUCTION({opc(s)});
-#define PARSE_B(opc)\
-	byte b = parse_byte(comp);\
-	WRITE_INSTRUCTION({opc(b)});
-#define PARSE_RS(opc)\
-	byte r = parse_full_register(comp);\
-	uint16_t s = parse_short(comp);\
-	WRITE_INSTRUCTION({opc(r, s)});
-#define PARSE_RB(opc)\
-	byte r = parse_full_register(comp);\
-	byte b = parse_byte(comp);\
-	WRITE_INSTRUCTION({opc(r, b)});
-#define PARSE_RRR(opc)\
-	byte a = parse_full_register(comp);\
-	byte b = parse_full_register(comp);\
-	byte c = parse_full_register(comp);\
-	WRITE_INSTRUCTION({opc(a, b, c)});
-#define PARSE_RR(opc)\
-	byte b = parse_full_register(comp);\
-	byte c = parse_full_register(comp);\
-	WRITE_INSTRUCTION({opc(b, c)});
-#define PARSE_RRB(opc)\
-	byte a = parse_full_register(comp);\
-	byte c = parse_full_register(comp);\
-	byte b = parse_byte(comp);\
-	WRITE_INSTRUCTION({opc(a, c, b)});
-#define PARSE_BRANCH(opc)\
-	if (comp->str.text[comp->str.i] == '0' || comp->str.text[comp->str.i] == '-'){\
-		int16_t s = parse_short(comp);\
-		WRITE_INSTRUCTION({opc(1, s)});\
-	}\
-	else{\
-		word r = parse_register(comp);\
-		if (*comp->err == 0){\
-			byte p = parse_partition(comp);\
-			byte a = REG(p, (r&0xFF));\
-			WRITE_INSTRUCTION({opc(0, a)});\
-		}\
-		else{\
-			*comp->err = 0;\
-			comp->str.i -= 1;\
-			byte copy = comp->str.text[comp->str.i];\
-			comp->str.text[comp->str.i] = '\0';\
-			word address = request_label(comp, (const char* const)comp->str.text+r, comp->str.i-r);\
-			ASSERT_ERR(1);\
-			comp->str.text[comp->str.i] = copy;\
-			comp->str.i += 1;\
-			if (address == 0){\
-				WRITE_INSTRUCTION({opc(0,0)});\
-			}\
-			else{\
-				word loc = comp->buf.i+PROGRAM_START;\
-				int32_t offset = address - loc;\
-				if (offset > 32767 || offset < -32767){\
-					WRITE_INSTRUCTION({LDS_(REG(L16, LR), address>>48)});\
-					WRITE_INSTRUCTION({LDS_(REG(LM16, LR), address>>32)});\
-					WRITE_INSTRUCTION({LDS_(REG(RM16, LR), address>>16)});\
-					WRITE_INSTRUCTION({LDS_(REG(R16, LR), address)});\
-					WRITE_INSTRUCTION({opc(0, REG(FULL, LR))});\
-				}\
-				else{\
-					WRITE_INSTRUCTION({opc(1, offset&0xFFFF)});\
-				}\
-			}\
-		}\
-	}\
-
-byte parse_opcode(compiler* const comp, OPCODE op){
-	switch (op){
-	case NOP: { WRITE_INSTRUCTION({NOP_}); } break;
-	case LDS: { PARSE_RS(LDS_); } break;
-	case LDB: { PARSE_RB(LDB_); } break;
-	case LDA: { PARSE_RRR(LDA_); } break;
-	case LDI: { PARSE_RRB(LDI_); } break;
-	case STS: { PARSE_RS(STS_); } break;
-	case STA: { PARSE_RRR(STA_); } break;
-	case STB: { PARSE_RRB(STB_); } break;
-	case MOV: { PARSE_RR(MOV_); } break;
-	case SWP: { PARSE_RR(SWP_); } break;
-	case ADS: { PARSE_RS(ADS_); } break;
-	case SUS: { PARSE_RS(SUS_); } break;
-	case MUS: { PARSE_RS(MUS_); } break;
-	case DIS: { PARSE_RS(DIS_); } break;
-	case MOS: { PARSE_RS(MOS_); } break;
-	case ANS: { PARSE_RS(ANS_); } break;
-	case ORS: { PARSE_RS(ORS_); } break;
-	case SLS: { PARSE_RS(SLS_); } break;
-	case SRS: { PARSE_RS(SRS_); } break;
-	case XRS: { PARSE_RS(XRS_); } break;
-	case ADI: { PARSE_RR(ADI_); } break;
-	case SUI: { PARSE_RR(SUI_); } break;
-	case MUI: { PARSE_RR(MUI_); } break;
-	case DII: { PARSE_RR(DII_); } break;
-	case MOI: { PARSE_RR(MOI_); } break;
-	case ANI: { PARSE_RR(ANI_); } break;
-	case ORI: { PARSE_RR(ORI_); } break;
-	case SLI: { PARSE_RR(SLI_); } break;
-	case SRI: { PARSE_RR(SRI_); } break;
-	case XRI: { PARSE_RR(XRI_); } break;
-	case ADD: { PARSE_RRR(ADD_); } break;
-	case SUB: { PARSE_RRR(SUB_); } break;
-	case MUL: { PARSE_RRR(MUL_); } break;
-	case DIV: { PARSE_RRR(DIV_); } break;
-	case MOD: { PARSE_RRR(MOD_); } break;
-	case AND: { PARSE_RRR(AND_); } break;
-	case OR: { PARSE_RRR(OR_); } break;
-	case SHL: { PARSE_RRR(SHL_); } break;
-	case SHR: { PARSE_RRR(SHR_); } break;
-	case XOR: { PARSE_RRR(XOR_); } break;
-	case INV: { PARSE_RR(INV_); } break;
-	case COM: { PARSE_RR(COM_); } break;
-	case INI: { PARSE_R(INI_); } break;
-	case COI: { PARSE_R(COI_); } break;
-	case CMP: { PARSE_RR(CMP_); } break;
-	case CMS: { PARSE_RS(CMS_); } break;
-	case RET: { PARSE_R(RET_); } break;
-	case REI: { WRITE_INSTRUCTION({REI_}); } break;
-	case RES: { PARSE_S(RES_); } break;
-	case ESC: { WRITE_INSTRUCTION({ESC_}); } break;
-	case CAL: { WRITE_INSTRUCTION({CAL_}); } break;
-	case PSH: { PARSE_R(PSH_); } break;
-	case PSS: { PARSE_S(PSS_); } break;
-	case POP: { PARSE_R(POP_); } break;
-	case BNC: { PARSE_BRANCH(BNC_); } break;
-	case BNE: { PARSE_BRANCH(BNE_); } break;
-	case BEQ: { PARSE_BRANCH(BEQ_); } break;
-	case BLT: { PARSE_BRANCH(BLT_); } break;
-	case BGT: { PARSE_BRANCH(BGT_); } break;
-	case BLE: { PARSE_BRANCH(BLE_); } break;
-	case BGE: { PARSE_BRANCH(BGE_); } break;
-	case JMP: { PARSE_BRANCH(JMP_); } break;
-	case JNE: { PARSE_BRANCH(JNE_); } break;
-	case JEQ: { PARSE_BRANCH(JEQ_); } break;
-	case JLT: { PARSE_BRANCH(JLT_); } break;
-	case JGT: { PARSE_BRANCH(JGT_); } break;
-	case JLE: { PARSE_BRANCH(JLE_); } break;
-	case JGE: { PARSE_BRANCH(JGE_); } break;
-	case INT: { PARSE_B(INT_); } break;
-	case INR: { PARSE_R(INR_); } break;
-	default:
-		ASSERT_LOCAL(0, "Unknown opcode\n");
-	}
-	return 0;
-}
-
-byte check_pending_jumps(compiler* const comp){
-	word capacity = 2;
-	label_chain_map_bucket** stack = pool_request(comp->mem, sizeof(label_chain_map_bucket*)*capacity);
-	word size = 0;
-	for (byte i = 0;i<MAP_SIZE;++i){
-		label_chain_map_bucket* bucket = &comp->chain.buckets[i];
-		if (bucket->tag == BUCKET_EMPTY){
+	data->data.bytes.raw = pool_request(comp->mem, data->data.bytes.size);
+	word index = 0;
+	for (word i = initial_index;i<token_index;++i){
+		token t = comp->tokens[i];
+		switch (t.type){
+		case SHORT_HEX_NUMERIC_TOKEN:
+			data->data.bytes.raw[index] = (t.data.number & 0xFF00) >> 8;
+			index += 1;
+			data->data.bytes.raw[index] = (t.data.number & 0xFF);
+			index += 1;
 			continue;
-		}
-		stack[size] = bucket;
-		size += 1;
-		while (size != 0){
-			bucket = stack[--size];
-			if (size == (capacity-1)){
-				pool_request(comp->mem, sizeof(label_chain_map_bucket*)*capacity);
-				capacity *= 2;
-			}
-			ASSERT_LOCAL(bucket->value->tag == FILLED_LINK, "Label target for jump never resolved to address or offset\n");
-			if (bucket->right->tag == BUCKET_FULL){
-				stack[size] = bucket->right;
-				size += 1;
-			}
-			if (bucket->left->tag == BUCKET_FULL){
-				stack[size] = bucket->left;
-				size += 1;
-			}
+		case BYTE_HEX_NUMERIC_TOKEN:
+			data->data.bytes.raw[index] = (t.data.number & 0xFF);
+			index += 1;
+			continue;
+		default:
+			ASSERT_LOCAL(0, " Unexpected byte in sequence\n");
 		}
 	}
+	return token_index;
+}
+
+word parse_push_block(compiler* const comp, word token_index, data_tree* data){
+	data_tree* last = data;
+	while (token_index < comp->token_count){
+		token t = comp->tokens[token_index];
+		token_index += 1;
+		switch (t.type){
+		case SHORT_HEX_NUMERIC_TOKEN:
+		case BYTE_HEX_NUMERIC_TOKEN:
+			data->type = BYTE_DATA;
+			token_index = parse_byte_sequence(comp, token_index-1, data);
+			data->next = pool_request(comp->mem, sizeof(data_tree));
+			last = data;
+			data = data->next;
+			data->next = NULL;
+			continue;
+		case OPEN_PUSH_TOKEN:
+			data->type = NEST_DATA;
+			data->data.nest = pool_request(comp->mem, sizeof(data_tree));
+			token_index = parse_push_block(comp, token_index, data->data.nest);
+			ASSERT_ERR(0);
+			data->next = pool_request(comp->mem, sizeof(data_tree));
+			last = data;
+			data = data->next;
+			data->next = NULL;
+			continue;
+		case CLOSE_PUSH_TOKEN:
+			last->next = NULL;
+			return token_index;
+		default:
+			data->type = CODE_DATA;
+			data->data.code = pool_request(comp->mem, sizeof(code_tree));
+			data->data.code->labeling = NOT_LABELED;
+			data->data.code->next = NULL;
+			token_index = parse_code(comp, token_index, data->data.code, CLOSE_PUSH_TOKEN);
+			data->next = NULL;
+			return token_index;
+		}
+	}
+	ASSERT_LOCAL(0, " Expected push block terminating character '}'\n");
 	return 0;
 }
 
-#define WRITE_TO_BLOCK(inst)\
-{\
-	byte inst_data[] = {inst};\
-	for (byte i = 0;i<4;++i){\
-		code->buffer[code->size] = inst_data[i];\
-		code->size += 1;\
-	}\
+word parse_3reg(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code){
+	byte a = 0;
+	byte b = 0;
+	byte c = 0;
+	token_index = parse_register(comp, token_index, &a);
+	ASSERT_ERR(0);
+	token_index = parse_register(comp, token_index, &b);
+	ASSERT_ERR(0);
+	token_index = parse_register(comp, token_index, &c);
+	ASSERT_ERR(0);
+	code->data.code.instructions[instruction_index] = op;
+	code->data.code.instructions[instruction_index+1] = a;
+	code->data.code.instructions[instruction_index+2] = b;
+	code->data.code.instructions[instruction_index+3] = c;
+	return token_index;
+}
+
+word parse_2reg(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code){
+	byte a = 0;
+	byte b = 0;
+	token_index = parse_register(comp, token_index, &a);
+	ASSERT_ERR(0);
+	token_index = parse_register(comp, token_index, &b);
+	ASSERT_ERR(0);
+	code->data.code.instructions[instruction_index] = op;
+	code->data.code.instructions[instruction_index+1] = a;
+	code->data.code.instructions[instruction_index+2] = b;
+	code->data.code.instructions[instruction_index+3] = 0;
+	return token_index;
+}
+
+word parse_2reg_byte(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code){
+	byte a = 0;
+	byte b = 0;
+	token_index = parse_register(comp, token_index, &a);
+	ASSERT_ERR(0);
+	token_index = parse_register(comp, token_index, &b);
+	ASSERT_ERR(0);
+	token t = comp->tokens[token_index];
+	ASSERT_LOCAL(t.type == BYTE_HEX_NUMERIC_TOKEN, " Expectd byte literal\n");
+	token_index += 1;
+	code->data.code.instructions[instruction_index] = op;
+	code->data.code.instructions[instruction_index+1] = a;
+	code->data.code.instructions[instruction_index+2] = b;
+	code->data.code.instructions[instruction_index+3] = (t.data.number & 0xFF);
+	return token_index;
+}
+
+word parse_reg_short(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code){
+	byte a = 0;
+	token_index = parse_register(comp, token_index, &a);
+	ASSERT_ERR(0);
+	token t = comp->tokens[token_index];
+	ASSERT_LOCAL(t.type == SHORT_HEX_NUMERIC_TOKEN || t.type == BYTE_HEX_NUMERIC_TOKEN, " Expected numeric literal\n");
+	token_index += 1;
+	code->data.code.instructions[instruction_index] = op;
+	code->data.code.instructions[instruction_index+1] = a;
+	code->data.code.instructions[instruction_index+2] = (t.data.number & 0xFF00) >> 8;
+	code->data.code.instructions[instruction_index+3] = (t.data.number & 0xFF);
+	return token_index;
+}
+
+word parse_instruction_block(compiler* const comp, word token_index, code_tree* code){
+	token t = comp->tokens[token_index];
+	ASSERT_LOCAL(t.type == OPCODE_TOKEN, " Expected opcode in parse instruction start\n");
+	code->type = INSTRUCTION_BLOCK;
+	code->data.code.instructions = pool_request(comp->mem, 4*BLOCK_START_SIZE);
+	code->data.code.instruction_count = 0;
+	word instruction_capacity = 4*BLOCK_START_SIZE;
+	word instruction_index = 0;
+	while (token_index < comp->token_count){
+		t = comp->tokens[token_index];
+		if (t.type != OPCODE_TOKEN){
+			return token_index;
+		}
+		token_index += 1;
+		OPCODE opc = t.data.opcode;
+		if (opc >= BNC && opc <= JGE){
+			t = comp->tokens[token_index];
+			token_index += 1;
+			byte triggered = INSTRUCTION_BLOCK;
+			if (t.type == SUBLABEL_TOKEN){
+				t = comp->tokens[token_index];
+				ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN, " Expected identifier after sublabel token '.' in jump\n");
+				token_index += 1;
+				triggered = INSTRUCTION_SUBJUMP;
+			}
+			else if (t.type == IDENTIFIER_TOKEN){
+				triggered = INSTRUCTION_JUMP;
+			}
+			if (triggered != INSTRUCTION_BLOCK){
+				if (code->data.code.instruction_count > 0){
+					code->next = pool_request(comp->mem, sizeof(code_tree));
+					code = code->next;
+					code->next = NULL;
+					code->labeling = NOT_LABELED;
+				}
+				code->type = triggered;
+				code->data.code.instruction_count = 1;
+				code->data.code.instructions = pool_request(comp->mem, 4);
+				code->data.code.instructions[0] = opc;
+				code->data.code.instructions[1] = 0;//TODO mode?
+				code->data.code.instructions[2] = 0;
+				code->data.code.instructions[3] = 0;
+				code->dest = t;
+				return token_index;
+			}
+			switch (t.type){
+			case REGISTER_TOKEN:
+				byte link_reg = 0;
+				token_index = parse_register(comp, token_index-1, &link_reg);
+				ASSERT_ERR(0);
+				code->data.code.instructions[instruction_index] = opc;
+				code->data.code.instructions[instruction_index+1] = 0;
+				code->data.code.instructions[instruction_index+2] = 0;
+				code->data.code.instructions[instruction_index+3] = link_reg;
+				break;
+			case SHORT_HEX_NUMERIC_TOKEN:
+			case BYTE_HEX_NUMERIC_TOKEN:
+				code->data.code.instructions[instruction_index] = opc;
+				code->data.code.instructions[instruction_index+1] = 1;
+				code->data.code.instructions[instruction_index+2] = (t.data.number & 0xFF00) >> 8;
+				code->data.code.instructions[instruction_index+3] = (t.data.number & 0xFF);
+				break;
+			default:
+				code->data.code.instructions[instruction_index] = opc;
+				code->data.code.instructions[instruction_index+1] = 1;
+				code->data.code.instructions[instruction_index+2] = 0;
+				code->data.code.instructions[instruction_index+3] = 0;
+				token_index -= 1;
+			}
+		}
+		else{
+			switch (t.data.opcode){
+			case LDA: case STA: case ADD: case SUB:
+			case MUL: case DIV: case MOD: case AND:
+			case OR: case SHL: case SHR: case XOR:
+				token_index = parse_3reg(comp, t.data.opcode, instruction_index, token_index, code);
+				break;
+			case LDS: case STS: case ADS: case SUS:
+			case MUS: case DIS: case MOS: case ANS:
+			case ORS: case SLS: case SRS: case XRS:
+			case CMS:
+				token_index = parse_reg_short(comp, t.data.opcode, instruction_index, token_index, code);
+				break;
+			case MOV: case SWP: case ADI: case SUI:
+			case MUI: case DII: case MOI: case ANI:
+			case ORI: case SLI: case SRI: case XRI:
+			case INV: case COM: case CMP:
+				token_index = parse_2reg(comp, t.data.opcode, instruction_index, token_index, code);
+				break;
+			case LDI: case STB:
+				token_index = parse_2reg_byte(comp, t.data.opcode, instruction_index, token_index, code);
+				break;
+			case INI: case COI: case RET: case PSH:
+			case POP: case INR:
+				byte r = 0;
+				token_index = parse_register(comp, token_index, &r);
+				ASSERT_ERR(0);
+				code->data.code.instructions[instruction_index] = t.data.opcode;
+				code->data.code.instructions[instruction_index+1] = r;
+				code->data.code.instructions[instruction_index+2] = 0;
+				code->data.code.instructions[instruction_index+3] = 0;
+				break;
+			case RES: case PSS:
+				token s = comp->tokens[token_index];
+				ASSERT_LOCAL(s.type == SHORT_HEX_NUMERIC_TOKEN || s.type == BYTE_HEX_NUMERIC_TOKEN, " Expected numeric literal\n");
+				token_index += 1;
+				code->data.code.instructions[instruction_index] = t.data.opcode;
+				code->data.code.instructions[instruction_index+1] = (s.data.number & 0xFF00) >> 8;
+				code->data.code.instructions[instruction_index+2] = (s.data.number & 0xFF);
+				code->data.code.instructions[instruction_index+3] = 0;
+				break;
+			case INT:
+				token b = comp->tokens[token_index];
+				ASSERT_LOCAL(t.type == BYTE_HEX_NUMERIC_TOKEN, " Expected byte literal\n");
+				token_index += 1;
+				code->data.code.instructions[instruction_index] = t.data.opcode;
+				code->data.code.instructions[instruction_index+1] = (b.data.number & 0xFF);
+				code->data.code.instructions[instruction_index+2] = 0;
+				code->data.code.instructions[instruction_index+3] = 0;
+				break;
+			case NOP: case REI: case ESC: case CAL:
+				code->data.code.instructions[instruction_index] = t.data.opcode;
+				code->data.code.instructions[instruction_index+1] = 0;
+				code->data.code.instructions[instruction_index+2] = 0;
+				code->data.code.instructions[instruction_index+3] = 0;
+				break;
+			default:
+				ASSERT_LOCAL(0, " Unknown opcode\n");
+			}
+		}
+		instruction_index += 4;
+		code->data.code.instruction_count += 1;
+		if (instruction_index >= instruction_capacity){
+			pool_request(comp->mem, 4*code->data.code.instruction_count);
+			instruction_capacity *= 2;
+		}
+	}
+	return token_index;
+}
+
+word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN terminator){
+	while (token_index < comp->token_count){
+		token t = comp->tokens[token_index];
+		token_index += 1;
+		if (t.type == terminator){
+			return token_index;
+		}
+		switch (t.type){
+		case OPCODE_TOKEN:
+			token_index = parse_instruction_block(comp, token_index-1, ir);
+			ASSERT_ERR(0);
+			while (ir->next != NULL){
+				ir = ir->next;
+			}
+			ir->next = pool_request(comp->mem, sizeof(code_tree));
+			ir = ir->next;
+			ir->labeling = NOT_LABELED;
+			ir->next = NULL;
+			continue;
+		case OPEN_CALL_TOKEN:
+			ir->type = CALL_BLOCK;
+			ir->data.call = pool_request(comp->mem, sizeof(call_tree));
+			ir->data.call->next = NULL;
+			token_index = parse_call_block(comp, token_index, ir->data.call);
+			ASSERT_ERR(0);
+			ir->next = pool_request(comp->mem, sizeof(code_tree));
+			ir = ir->next;
+			ir->labeling = NOT_LABELED;
+			ir->next = NULL;
+			continue;
+		case OPEN_PUSH_TOKEN:
+			ir->type = PUSH_BLOCK;
+			ir->data.push = pool_request(comp->mem, sizeof(data_tree));
+			ir->data.push->next = NULL;
+			token_index = parse_push_block(comp, token_index, ir->data.push);
+			ASSERT_ERR(0);
+			ir->next = pool_request(comp->mem, sizeof(code_tree));
+			ir = ir->next;
+			ir->labeling = NOT_LABELED;
+			ir->next = NULL;
+			continue;
+		case SUBLABEL_TOKEN:
+			ASSERT_LOCAL(ir->labeling == NOT_LABELED, " Double labeled instruction\n");
+			t = comp->tokens[token_index];
+			token_index += 1;
+			ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN, " Expected label after '.'\n");
+			t = comp->tokens[token_index];
+			token_index += 1;
+			ASSERT_LOCAL(t.type = LABEL_TOKEN, " Unexpected label\n");
+			ir->labeling = SUBLABELED;
+			ir->label = t;
+			continue;
+		case IDENTIFIER_TOKEN:
+			ASSERT_LOCAL(ir->labeling == NOT_LABELED, " Double labeled instruction\n");
+			t = comp->tokens[token_index];
+			token_index += 1;
+			ASSERT_LOCAL(t.type == LABEL_TOKEN, " Unexpected label\n");
+			ir->labeling = LABELED;
+			ir->label = t;
+			continue;
+		default:
+			ASSERT_LOCAL(0, " Unexpected token type\n");
+		}
+	}
+	return token_index;
+}
+
+byte parse_tokens(compiler* const comp){
+	word token_index = 0;
+	comp->ir = pool_request(comp->mem, sizeof(code_tree));
+	comp->ir->labeling = NOT_LABELED;
+	comp->ir->next = NULL;
+	parse_code(comp, token_index, comp->ir, NONE_TOKEN);
+	return 0;
 }
 
 byte compile_cstr(compiler* const comp){
-	while (comp->str.i < comp->str.size){
-		char c = comp->str.text[comp->str.i];
-		switch (c){
-		case ' ':
-		case '\n':
-		case '\t':
-		case '\r':
-			comp->str.i += 1;
-			continue;
-		case '(':
-			comp->str.i += 1;
-			//TODO compound expression
-			return 1;
-		}
-		uint32_t hash = 5381;
-		int16_t s;
-		word start = comp->str.i;
-		while (comp->str.i < comp->str.size){
-			c = comp->str.text[comp->str.i];
-			if (whitespace(c)){
-				break;
-			}
-			s = comp->str.text[comp->str.i];
-			hash = ((hash<<5)+hash)+s;
-			comp->str.i += 1;
-		}
-		char copy = comp->str.text[comp->str.i];
-		comp->str.text[comp->str.i] = '\0';
-		OPCODE* op = OPCODE_map_access_by_hash(&comp->opmap, hash, (const char* const)comp->str.text+start);
-		if (op != NULL){
-			comp->str.text[comp->str.i] = copy;
-			comp->str.i += 1;
-			parse_opcode(comp, *op);
-			ASSERT_ERR(1);
-			continue;
-		}
-		parse_label(comp, (char* const) comp->str.text+start);
-		comp->str.text[comp->str.i] = copy;
-		comp->str.i += 1;
-		ASSERT_ERR(1);
-	}
-	check_pending_jumps(comp);
+	lex_cstr(comp);
+	ASSERT_ERR(0);
+	parse_tokens(comp);
+	ASSERT_ERR(0);
+
 	return 0;
 }
 
@@ -1281,7 +1451,6 @@ void compile_file(char* infile, char* outfile){
 		.opmap = opmap,
 		.regmap = regmap,
 		.partmap = partmap,
-		.chain = label_chain_map_init(&mem),
 		.mem = &mem,
 		.err = pool_request(&mem, ERROR_BUFFER)
 	};

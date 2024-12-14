@@ -2,3 +2,4 @@ machine
 hla.txt
 *.rom
 *.src
+*.sh
