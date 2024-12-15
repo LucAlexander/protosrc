@@ -1,5 +1,5 @@
-#ifndef MACHINE_H
-#define MACHINE_H
+#ifndef ORB_H
+#define ORB_H
 
 #include <inttypes.h>
 #include "string.h"

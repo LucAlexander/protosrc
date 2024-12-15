@@ -1,10 +1,10 @@
 run:
 	clear
-	gcc -g -Wall -o machine main.c pool.c
-	./machine
+	gcc -g -Wall -o orb orb.c pool.c
+	./orb
 
 compile:
-	gcc -g -Wall -o machine main.c pool.c
+	gcc -g -Wall -o orb orb.c orb.c
 
 
 clean:

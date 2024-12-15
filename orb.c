@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include "machine.h"
+#include "orb.h"
 #include "hashmap.h"
 
 #pragma GCC diagnostic ignored "-Wsequence-point"
