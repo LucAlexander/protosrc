@@ -690,9 +690,9 @@ void interpret(){
 	}
 }
 
-#define ASSERT_LOCAL(b, m)\
+#define ASSERT_LOCAL(b, ...)\
 	if (!(b)){\
-		snprintf(comp->err, ERROR_BUFFER, m);\
+		snprintf(comp->err, ERROR_BUFFER, "Failed local assertion " #b "\n" __VA_ARGS__);\
 		return 0;\
 	}
 
@@ -819,9 +819,14 @@ byte whitespace(char c){
 	return (c=='\n' || c==' ' || c=='\r' || c == '\t');
 }
 
+#define LEXERR " [Line %lu] \033[1mLexing Error\033[0m "
+#define PARSERR " \033[1mParsing Error\033[0m "
+#define PARSERRFIX " at \033[1;31m %s\033[0m\n"
+
 byte lex_cstr(compiler* const comp){
 	comp->tokens = pool_request(comp->mem, sizeof(token));
 	comp->token_count = 0;
+	word line = 1;
 	while (comp->str.i < comp->str.size){
 		token* t = &comp->tokens[comp->token_count];
 		t->text = &comp->str.text[comp->str.i];
@@ -833,6 +838,7 @@ byte lex_cstr(compiler* const comp){
 		switch (c){
 		case ' ':
 		case '\n':
+			line += 1;
 		case '\t':
 		case '\r':
 			continue;
@@ -848,13 +854,13 @@ byte lex_cstr(compiler* const comp){
 			continue;
 		case '-':
 			c = comp->str.text[comp->str.i];
-			ASSERT_LOCAL(c=='0', " Expected numeric after '-'\n");
+			ASSERT_LOCAL(c=='0', LEXERR " Expected numeric after '-'\n", line);
 			comp->str.i += 1;
 			t->size += 1;
 			negative = 1;
 		case '0':
 			c = comp->str.text[comp->str.i];
-			ASSERT_LOCAL(c == 'x' || c == 'X', " Malformed numeric prefix\n");
+			ASSERT_LOCAL(c == 'x' || c == 'X', LEXERR " Malformed numeric prefix\n", line);
 			comp->str.i += 1;
 			t->size += 1;
 			int64_t number = 0;
@@ -891,19 +897,19 @@ byte lex_cstr(compiler* const comp){
 			else if (index <= sizeof(uint16_t)*2){
 				t->type = SHORT_HEX_NUMERIC_TOKEN;
 				if (negative == 1){
-					ASSERT_LOCAL(number <= 32767, " Too many bytes provided for negative short numeric\n");
+					ASSERT_LOCAL(number <= 32767, LEXERR " Too many bytes provided for negative short numeric\n", line);
 					number *= -1;
 				}
 			}
 			else{
-				ASSERT_LOCAL(0, " Too many bytes provided for short hex numeric\n");
+				ASSERT_LOCAL(0, LEXERR " Too many bytes provided for short hex numeric\n", line);
 			}
 			t->data.number = number;
 			pool_request(comp->mem, sizeof(token));
 			comp->token_count += 1;
 			continue;
 		}
-		ASSERT_LOCAL(c == '_' || isalpha(c), " Expected identifier\n");
+		ASSERT_LOCAL(c == '_' || isalpha(c), LEXERR " Expected identifier\n", line);
 		t->type = IDENTIFIER_TOKEN;
 		while (comp->str.i < comp->str.size){
 			c = comp->str.text[comp->str.i];
@@ -951,7 +957,7 @@ byte lex_cstr(compiler* const comp){
 
 word parse_register(compiler* const comp, word token_index, byte* r){
 	token t = comp->tokens[token_index];
-	ASSERT_LOCAL(t.type == REGISTER_TOKEN, " Register must start with register\n");
+	ASSERT_LOCAL(t.type == REGISTER_TOKEN, PARSERR " Parsing register expected main register token" PARSERRFIX, t.text);
 	byte base = t.data.reg;
 	token_index += 1;
 	t = comp->tokens[token_index];
@@ -1015,7 +1021,7 @@ word parse_call_block(compiler* const comp, word token_index, call_tree* data){
 			continue;
 		case SUBLABEL_TOKEN:
 			t = comp->tokens[token_index];
-			ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN, " Expected sublabel identifier following '.' token\n");
+			ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN, PARSERR " Expected sublabel identifier following '.' token" PARSERRFIX, t.text);
 			token_index += 1;
 			data->type = SUBLABEL_ARG;
 			data->data.label = t;
@@ -1033,10 +1039,10 @@ word parse_call_block(compiler* const comp, word token_index, call_tree* data){
 			data->next = NULL;
 			continue;
 		default:
-			ASSERT_LOCAL(0, " Unexpected call argument token\n");
+			ASSERT_LOCAL(0, PARSERR " Unexpected call argument token" PARSERRFIX, t.text);
 		}
 	}
-	ASSERT_LOCAL(0, " Unexpected end to procedure call\n");
+	ASSERT_LOCAL(0, PARSERR " Unexpected end to procedure call\n");
 	return 0;
 }
 
@@ -1072,7 +1078,7 @@ word parse_byte_sequence(compiler* const comp, word token_index, data_tree* data
 			index += 1;
 			continue;
 		default:
-			ASSERT_LOCAL(0, " Unexpected byte in sequence\n");
+			ASSERT_LOCAL(0, PARSERR " Unexpected byte in sequence" PARSERRFIX, t.text);
 		}
 	}
 	return token_index;
@@ -1116,7 +1122,7 @@ word parse_push_block(compiler* const comp, word token_index, data_tree* data){
 			return token_index;
 		}
 	}
-	ASSERT_LOCAL(0, " Expected push block terminating character '}'\n");
+	ASSERT_LOCAL(0, PARSERR " Expected push block terminating character '}'\n");
 	return 0;
 }
 
@@ -1159,7 +1165,7 @@ word parse_2reg_byte(compiler* const comp, OPCODE op, word instruction_index, wo
 	token_index = parse_register(comp, token_index, &b);
 	ASSERT_ERR(0);
 	token t = comp->tokens[token_index];
-	ASSERT_LOCAL(t.type == BYTE_HEX_NUMERIC_TOKEN, " Expectd byte literal\n");
+	ASSERT_LOCAL(t.type == BYTE_HEX_NUMERIC_TOKEN, PARSERR " Expectd byte literal" PARSERRFIX, t.text);
 	token_index += 1;
 	code->data.code.instructions[instruction_index] = op;
 	code->data.code.instructions[instruction_index+1] = a;
@@ -1173,7 +1179,7 @@ word parse_reg_short(compiler* const comp, OPCODE op, word instruction_index, wo
 	token_index = parse_register(comp, token_index, &a);
 	ASSERT_ERR(0);
 	token t = comp->tokens[token_index];
-	ASSERT_LOCAL(t.type == SHORT_HEX_NUMERIC_TOKEN || t.type == BYTE_HEX_NUMERIC_TOKEN, " Expected numeric literal\n");
+	ASSERT_LOCAL(t.type == SHORT_HEX_NUMERIC_TOKEN || t.type == BYTE_HEX_NUMERIC_TOKEN, PARSERR " Expected numeric literal" PARSERRFIX, t.text);
 	token_index += 1;
 	code->data.code.instructions[instruction_index] = op;
 	code->data.code.instructions[instruction_index+1] = a;
@@ -1184,7 +1190,7 @@ word parse_reg_short(compiler* const comp, OPCODE op, word instruction_index, wo
 
 word parse_instruction_block(compiler* const comp, word token_index, code_tree* code){
 	token t = comp->tokens[token_index];
-	ASSERT_LOCAL(t.type == OPCODE_TOKEN, " Expected opcode in parse instruction start\n");
+	ASSERT_LOCAL(t.type == OPCODE_TOKEN, PARSERR " Expected opcode in parse instruction start" PARSERRFIX, t.text);
 	code->type = INSTRUCTION_BLOCK;
 	code->data.code.instructions = pool_request(comp->mem, 4*BLOCK_START_SIZE);
 	code->data.code.instruction_count = 0;
@@ -1203,7 +1209,7 @@ word parse_instruction_block(compiler* const comp, word token_index, code_tree* 
 			byte triggered = INSTRUCTION_BLOCK;
 			if (t.type == SUBLABEL_TOKEN){
 				t = comp->tokens[token_index];
-				ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN, " Expected identifier after sublabel token '.' in jump\n");
+				ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN, PARSERR " Expected identifier after sublabel token '.' in jump" PARSERRFIX, t.text);
 				token_index += 1;
 				triggered = INSTRUCTION_SUBJUMP;
 			}
@@ -1286,7 +1292,7 @@ word parse_instruction_block(compiler* const comp, word token_index, code_tree* 
 				break;
 			case RES: case PSS:
 				token s = comp->tokens[token_index];
-				ASSERT_LOCAL(s.type == SHORT_HEX_NUMERIC_TOKEN || s.type == BYTE_HEX_NUMERIC_TOKEN, " Expected numeric literal\n");
+				ASSERT_LOCAL(s.type == SHORT_HEX_NUMERIC_TOKEN || s.type == BYTE_HEX_NUMERIC_TOKEN, PARSERR " Expected numeric literal" PARSERRFIX, s.text);
 				token_index += 1;
 				code->data.code.instructions[instruction_index] = t.data.opcode;
 				code->data.code.instructions[instruction_index+1] = (s.data.number & 0xFF00) >> 8;
@@ -1295,7 +1301,7 @@ word parse_instruction_block(compiler* const comp, word token_index, code_tree* 
 				break;
 			case INT:
 				token b = comp->tokens[token_index];
-				ASSERT_LOCAL(t.type == BYTE_HEX_NUMERIC_TOKEN, " Expected byte literal\n");
+				ASSERT_LOCAL(t.type == BYTE_HEX_NUMERIC_TOKEN, PARSERR " Expected byte literal" PARSERRFIX, b.text);
 				token_index += 1;
 				code->data.code.instructions[instruction_index] = t.data.opcode;
 				code->data.code.instructions[instruction_index+1] = (b.data.number & 0xFF);
@@ -1309,7 +1315,7 @@ word parse_instruction_block(compiler* const comp, word token_index, code_tree* 
 				code->data.code.instructions[instruction_index+3] = 0;
 				break;
 			default:
-				ASSERT_LOCAL(0, " Unknown opcode\n");
+				ASSERT_LOCAL(0, PARSERR " Unknown opcode" PARSERRFIX, t.text);
 			}
 		}
 		instruction_index += 4;
@@ -1369,28 +1375,28 @@ word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN ter
 			ir->next = NULL;
 			continue;
 		case SUBLABEL_TOKEN:
-			ASSERT_LOCAL(ir->labeling == NOT_LABELED, " Double labeled instruction\n");
+			ASSERT_LOCAL(ir->labeling == NOT_LABELED, PARSERR " Double labeled instruction" PARSERRFIX, t.text);
 			t = comp->tokens[token_index];
 			token_index += 1;
-			ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN, " Expected label after '.'\n");
+			ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN, PARSERR " Expected label after '.'" PARSERRFIX, t.text);
 			token sublabel_name = t;
 			t = comp->tokens[token_index];
 			token_index += 1;
-			ASSERT_LOCAL(t.type = LABEL_TOKEN, " Unexpected label\n");
+			ASSERT_LOCAL(t.type = LABEL_TOKEN, PARSERR " Unexpected label" PARSERRFIX, t.text);
 			ir->labeling = SUBLABELED;
 			ir->label = sublabel_name;
 			continue;
 		case IDENTIFIER_TOKEN:
-			ASSERT_LOCAL(ir->labeling == NOT_LABELED, " Double labeled instruction\n");
+			ASSERT_LOCAL(ir->labeling == NOT_LABELED, PARSERR " Double labeled instruction" PARSERRFIX, t.text);
 			token label_name = t;
 			t = comp->tokens[token_index];
 			token_index += 1;
-			ASSERT_LOCAL(t.type == LABEL_TOKEN, " Unexpected label\n");
+			ASSERT_LOCAL(t.type == LABEL_TOKEN, PARSERR " Unexpected label" PARSERRFIX, t.text);
 			ir->labeling = LABELED;
 			ir->label = label_name;
 			continue;
 		default:
-			ASSERT_LOCAL(0, " Unexpected token type\n");
+			ASSERT_LOCAL(0, PARSERR " Unexpected token type" PARSERRFIX, t.text);
 		}
 	}
 	last->next = NULL;
@@ -1679,6 +1685,7 @@ void compile_file(char* infile, char* outfile){
 	if (*comp.err != 0){
 		fprintf(stderr, "Unable to compile '%s'\n", infile);
 		fprintf(stderr, comp.err);
+		fprintf(stderr, "\033[0m\n");
 		pool_dealloc(&mem);
 		return;
 	}
@@ -1792,7 +1799,7 @@ void run_rom(char* filename){
 }
 
 int32_t main(int argc, char** argv){
-	compile_file("test.src", "test.rom");
+	compile_file("full_syntax.src", "full_syntax.rom");
 	return 0;
 	if (argc <= 1){
 		printf(" -h for help\n");
