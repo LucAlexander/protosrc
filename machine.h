@@ -17,7 +17,7 @@ typedef uint8_t byte;
 
 typedef enum {
 	NOP=0,
-	LDS, LDB, LDA, LDI,
+	LDS, LDA, LDI,
 	STS, STA, STB,
 	MOV, SWP,
 	ADS, SUS, MUS, DIS, MOS, ANS, ORS, SLS, SRS, XRS,
@@ -45,8 +45,6 @@ typedef enum {
 } REGISTER;
 
 MAP_DEF(REGISTER)
-
-#define SEP_CHAR '['
 
 typedef enum {
 	L16,
@@ -204,6 +202,10 @@ word parse_reg_short(compiler* const comp, OPCODE op, word instruction_index, wo
 word parse_instruction_block(compiler* const comp, word token_index, code_tree* code);
 word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN terminator);
 byte parse_tokens(compiler* const comp);
+byte show_call(compiler* const comp, call_tree* const data, word depth);
+byte show_data(compiler* const comp, data_tree* const data, word depth);
+byte show_block(compiler* const comp, code_tree* const code, word depth);
+void show_tokens(compiler* const comp);
 byte compile_cstr(compiler* const comp);
 void compile_file(char* infile, char* outfile);
 void setup_registers();

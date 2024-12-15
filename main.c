@@ -394,7 +394,7 @@ void show_machine(){
 	PUSH_REG(REG(FULL, IP));\
 	PUSH_REG(REG(FULL, FP));\
 	reg[FP] = reg[SP];\
-	reg[IP] = reg[CR];
+	reg[IP] = reg[LR];
 
 #define BRANCH_JUMP\
 	PUSH_REG(REG(FULL, IP));\
@@ -410,7 +410,7 @@ void show_machine(){
 	reg[IP] += *(int64_t*)(&val);
 
 #define JUMP_REG_TO\
-	reg[IP] = reg[CR];\
+	reg[IP] = reg[LR];\
 
 #define JUMP\
 	int16_t offset = SHORT_LITERAL;\
@@ -788,16 +788,16 @@ void setup_register_map(REGISTER_map* regmap){
 	REGISTER_map_insert(regmap, "SR", regs++);
 	REGISTER_map_insert(regmap, "LR", regs++);
 	REGISTER_map_insert(regmap, "CR", regs++);
-	REGISTER_map_insert(regmap, "RA", regs++);
-	REGISTER_map_insert(regmap, "RB", regs++);
-	REGISTER_map_insert(regmap, "RC", regs++);
-	REGISTER_map_insert(regmap, "RD", regs++);
-	REGISTER_map_insert(regmap, "RE", regs++);
-	REGISTER_map_insert(regmap, "RF", regs++);
-	REGISTER_map_insert(regmap, "RG", regs++);
-	REGISTER_map_insert(regmap, "RH", regs++);
-	REGISTER_map_insert(regmap, "RI", regs++);
-	REGISTER_map_insert(regmap, "RJ", regs++);
+	REGISTER_map_insert(regmap, "rA", regs++);
+	REGISTER_map_insert(regmap, "rB", regs++);
+	REGISTER_map_insert(regmap, "rC", regs++);
+	REGISTER_map_insert(regmap, "rD", regs++);
+	REGISTER_map_insert(regmap, "rE", regs++);
+	REGISTER_map_insert(regmap, "rF", regs++);
+	REGISTER_map_insert(regmap, "rG", regs++);
+	REGISTER_map_insert(regmap, "rH", regs++);
+	REGISTER_map_insert(regmap, "rI", regs++);
+	REGISTER_map_insert(regmap, "rJ", regs++);
 }
 
 void setup_partition_map(REG_PARTITION_map* partmap){
@@ -840,6 +840,8 @@ byte lex_cstr(compiler* const comp){
 		case CLOSE_CALL_TOKEN:
 		case OPEN_PUSH_TOKEN:
 		case CLOSE_PUSH_TOKEN:
+		case SUBLABEL_TOKEN:
+		case LABEL_TOKEN:
 			t->type = c;
 			pool_request(comp->mem, sizeof(token));
 			comp->token_count += 1;
@@ -886,7 +888,7 @@ byte lex_cstr(compiler* const comp){
 					number *= -1;
 				}
 			}
-			else if (index < sizeof(uint16_t)*2){
+			else if (index <= sizeof(uint16_t)*2){
 				t->type = SHORT_HEX_NUMERIC_TOKEN;
 				if (negative == 1){
 					ASSERT_LOCAL(number <= 32767, " Too many bytes provided for negative short numeric\n");
@@ -903,7 +905,6 @@ byte lex_cstr(compiler* const comp){
 		}
 		ASSERT_LOCAL(c == '_' || isalpha(c), " Expected identifier\n");
 		t->type = IDENTIFIER_TOKEN;
-		uint32_t hash = ((5381<<5)+hash)+c;
 		while (comp->str.i < comp->str.size){
 			c = comp->str.text[comp->str.i];
 			if (!isalnum(c) && c != '_'){
@@ -911,11 +912,10 @@ byte lex_cstr(compiler* const comp){
 			}
 			t->size += 1;
 			comp->str.i += 1;
-			hash = ((hash<<5)+hash)+c;
 		}
 		char copy = comp->str.text[comp->str.i];
 		comp->str.text[comp->str.i] = '\0';
-		REGISTER* r = REGISTER_map_access_by_hash(&comp->regmap, hash, (const char* const)t->text);
+		REGISTER* r = REGISTER_map_access(&comp->regmap, (const char* const)t->text);
 		if (r != NULL){
 			t->type = REGISTER_TOKEN;
 			t->data.reg = *r;
@@ -924,7 +924,7 @@ byte lex_cstr(compiler* const comp){
 			comp->token_count += 1;
 			continue;
 		}
-		OPCODE* o = OPCODE_map_access_by_hash(&comp->opmap, hash, (const char* const)t->text);
+		OPCODE* o = OPCODE_map_access(&comp->opmap, (const char* const)t->text);
 		if (o != NULL){
 			t->type = OPCODE_TOKEN;
 			t->data.opcode = *o;
@@ -933,7 +933,7 @@ byte lex_cstr(compiler* const comp){
 			comp->token_count += 1;
 			continue;
 		}
-		REG_PARTITION* p = REG_PARTITION_map_access_by_hash(&comp->partmap, hash, (const char* const)t->text);
+		REG_PARTITION* p = REG_PARTITION_map_access(&comp->partmap, (const char* const)t->text);
 		if (p != NULL){
 			t->type = PART_TOKEN;
 			t->data.part = *p;
@@ -1048,7 +1048,7 @@ word parse_byte_sequence(compiler* const comp, word token_index, data_tree* data
 		if (t.type == SHORT_HEX_NUMERIC_TOKEN){
 			data->data.bytes.size += 2;
 		}
-		else if (t.type != BYTE_HEX_NUMERIC_TOKEN){
+		else if (t.type == BYTE_HEX_NUMERIC_TOKEN){
 			data->data.bytes.size += 1;
 		}
 		else{
@@ -1111,7 +1111,7 @@ word parse_push_block(compiler* const comp, word token_index, data_tree* data){
 			data->data.code = pool_request(comp->mem, sizeof(code_tree));
 			data->data.code->labeling = NOT_LABELED;
 			data->data.code->next = NULL;
-			token_index = parse_code(comp, token_index, data->data.code, CLOSE_PUSH_TOKEN);
+			token_index = parse_code(comp, token_index-1, data->data.code, CLOSE_PUSH_TOKEN);
 			data->next = NULL;
 			return token_index;
 		}
@@ -1323,6 +1323,7 @@ word parse_instruction_block(compiler* const comp, word token_index, code_tree* 
 }
 
 word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN terminator){
+	code_tree* last = ir;
 	while (token_index < comp->token_count){
 		token t = comp->tokens[token_index];
 		token_index += 1;
@@ -1337,6 +1338,7 @@ word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN ter
 				ir = ir->next;
 			}
 			ir->next = pool_request(comp->mem, sizeof(code_tree));
+			last = ir;
 			ir = ir->next;
 			ir->labeling = NOT_LABELED;
 			ir->next = NULL;
@@ -1348,6 +1350,7 @@ word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN ter
 			token_index = parse_call_block(comp, token_index, ir->data.call);
 			ASSERT_ERR(0);
 			ir->next = pool_request(comp->mem, sizeof(code_tree));
+			last = ir;
 			ir = ir->next;
 			ir->labeling = NOT_LABELED;
 			ir->next = NULL;
@@ -1359,6 +1362,7 @@ word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN ter
 			token_index = parse_push_block(comp, token_index, ir->data.push);
 			ASSERT_ERR(0);
 			ir->next = pool_request(comp->mem, sizeof(code_tree));
+			last = ir;
 			ir = ir->next;
 			ir->labeling = NOT_LABELED;
 			ir->next = NULL;
@@ -1368,24 +1372,27 @@ word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN ter
 			t = comp->tokens[token_index];
 			token_index += 1;
 			ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN, " Expected label after '.'\n");
+			token sublabel_name = t;
 			t = comp->tokens[token_index];
 			token_index += 1;
 			ASSERT_LOCAL(t.type = LABEL_TOKEN, " Unexpected label\n");
 			ir->labeling = SUBLABELED;
-			ir->label = t;
+			ir->label = sublabel_name;
 			continue;
 		case IDENTIFIER_TOKEN:
 			ASSERT_LOCAL(ir->labeling == NOT_LABELED, " Double labeled instruction\n");
+			token label_name = t;
 			t = comp->tokens[token_index];
 			token_index += 1;
 			ASSERT_LOCAL(t.type == LABEL_TOKEN, " Unexpected label\n");
 			ir->labeling = LABELED;
-			ir->label = t;
+			ir->label = label_name;
 			continue;
 		default:
 			ASSERT_LOCAL(0, " Unexpected token type\n");
 		}
 	}
+	last->next = NULL;
 	return token_index;
 }
 
@@ -1398,12 +1405,217 @@ byte parse_tokens(compiler* const comp){
 	return 0;
 }
 
+byte show_call(compiler* const comp, call_tree* call, word depth){
+	ASSERT_LOCAL(call != NULL, " call started as null\n");
+	byte first = 1;
+	while (call != NULL){
+		char save;
+		printf("\n");
+		if (first == 1){
+			printf("(PROCEDURE)");
+			first = 0;
+		}
+		else{
+			printf("(ARG)");
+		}
+		switch (call->type){
+		case CALL_ARG:
+			printf("CALL:\n");
+			show_call(comp, call->data.call, depth+1);
+			ASSERT_ERR(0);
+			break;
+		case PUSH_ARG:
+			printf("PUSH:\n");
+			show_data(comp, call->data.push, depth+1);
+			ASSERT_ERR(0);
+			break;
+		case REG_ARG:
+			printf("REGISTER: %u\n", call->data.reg);
+			break;
+		case LABEL_ARG:
+			save = call->data.label.text[call->data.label.size];
+			call->data.label.text[call->data.label.size] = '\0';
+			printf("LABEL: %s\n", call->data.label.text);
+			call->data.label.text[call->data.label.size] = save;
+			break;
+		case SUBLABEL_ARG:
+			save = call->data.label.text[call->data.label.size];
+			call->data.label.text[call->data.label.size] = '\0';
+			printf("SUBLABEL: .%s\n", call->data.label.text);
+			call->data.label.text[call->data.label.size] = save;
+			break;
+		case NUMERIC_ARG:
+			printf("NUMERIC: %lx\n", call->data.number);
+			break;
+		}
+		call = call->next;
+	}
+	return 0;
+}
+
+byte show_data(compiler* const comp, data_tree* data, word depth){
+	ASSERT_LOCAL(data != NULL, " push started as null\n");
+	while (data != NULL){
+		printf("\n");
+		switch (data->type){
+		case BYTE_DATA:
+			printf("BYTE SEQUENCE:\n");
+			for (word i = 0;i<data->data.bytes.size;){
+				word n = i+4;
+				for (;i<n;++i){
+					printf("%02x ", data->data.bytes.raw[i]);
+				}
+				if (i%4 == 0){
+					printf("\n");
+				}
+			}
+			for (byte k = (1+data->data.bytes.size) % sizeof(word);k>0;--k){
+				printf("00 ");
+			}
+			printf("\n");
+			break;
+		case NEST_DATA:
+			printf("PUSH:\n");
+			show_data(comp, data->data.nest, depth+1);
+			break;
+		case CODE_DATA:
+			printf("CODE:\n");
+			show_block(comp, data->data.code, depth+1);
+			ASSERT_ERR(0);
+			break;
+		}
+		data = data->next;
+	}
+	return 0;
+}
+
+byte show_block(compiler* const comp, code_tree* code, word depth){
+	ASSERT_LOCAL(code != NULL, " block started as null\n");
+	while (code != NULL){
+		printf("\n");
+		char save;
+		if (code->labeling == LABELED){
+			save = code->label.text[code->label.size];
+			code->label.text[code->label.size] = '\0';
+			printf("LABELED %s:\n", code->label.text);
+			code->label.text[code->label.size] = save;
+		}
+		else if (code->labeling == SUBLABELED){
+			save = code->label.text[code->label.size];
+			code->label.text[code->label.size] = '\0';
+			printf("SUBLABELED .%s:\n", code->label.text);
+			code->label.text[code->label.size] = save;
+		}
+		switch (code->type){
+		case INSTRUCTION_BLOCK:
+			printf("INSTRUCTION BLOCK:\n");
+			for (word i = 0;i<code->data.code.instruction_count;++i){
+				word inst = i*4;
+				word n = inst+4;
+				for (;inst<n;++inst){
+					printf("%02x ", code->data.code.instructions[inst]);
+				}
+				printf("\n");
+			}
+			break;
+		case INSTRUCTION_JUMP:
+			printf("JUMP:\n");
+			for (byte i = 0;i<4;++i){
+				printf("%02x ", code->data.code.instructions[i]);
+			}
+			save = code->dest.text[code->dest.size];
+			code->dest.text[code->dest.size] = '\0';
+			printf("-> %s\n", code->dest.text);
+			code->dest.text[code->dest.size] = save;
+			break;
+		case INSTRUCTION_SUBJUMP:
+			printf("SUB JUMP:\n");
+			for (byte i = 0;i<4;++i){
+				printf("%02x ", code->data.code.instructions[i]);
+			}
+			save = code->dest.text[code->dest.size];
+			code->dest.text[code->dest.size] = '\0';
+			printf("-> .%s\n", code->dest.text);
+			code->dest.text[code->dest.size] = save;
+			break;
+		case CALL_BLOCK:
+			printf("CALL:\n");
+			show_call(comp, code->data.call, depth+1);
+			ASSERT_ERR(0);
+			break;
+		case PUSH_BLOCK:
+			printf("PUSH:\n");
+			show_data(comp, code->data.push, depth+1);
+			ASSERT_ERR(0);
+			break;
+		}
+		code = code->next;
+	}
+	return 0;
+}
+
+void show_tokens(compiler* const comp){
+	for (word i = 0;i<comp->token_count;++i){
+		printf("[ ");
+		switch (comp->tokens[i].type){
+		case OPCODE_TOKEN:
+			printf("OPCODE %u ", comp->tokens[i].data.opcode);
+			break;
+		case REGISTER_TOKEN:
+			printf("REGISTER %u ", comp->tokens[i].data.reg);
+			break;
+		case PART_TOKEN:
+			printf("PARTITION %u ", comp->tokens[i].data.part);
+			break;
+		case OPEN_CALL_TOKEN:
+			printf("OPEN_CALL");
+			break;
+		case CLOSE_CALL_TOKEN:
+			printf("CLOSE_CALL ");
+			break;
+		case OPEN_PUSH_TOKEN:
+			printf("OPEN_PUSH ");
+			break;
+		case CLOSE_PUSH_TOKEN:
+			printf("CLOSE_PUSH ");
+			break;
+		case SUBLABEL_TOKEN:
+			printf("SUBLABEL ");
+			break;
+		case LABEL_TOKEN:
+			printf("LABEL ");
+			break;
+		case SHORT_HEX_NUMERIC_TOKEN:
+			printf("SHORT ");
+			break;
+		case BYTE_HEX_NUMERIC_TOKEN:
+			printf("BYTE ");
+			break;
+		case IDENTIFIER_TOKEN:
+			printf("IDENTIFIER ");
+			break;
+		case NONE_TOKEN:
+			printf("????? ");
+			break;
+		}
+		char save = comp->tokens[i].text[comp->tokens[i].size];
+		comp->tokens[i].text[comp->tokens[i].size] = '\0';
+		printf("'%s' ] ", comp->tokens[i].text);
+		comp->tokens[i].text[comp->tokens[i].size] = save;
+		if ((i+1) % 8 == 0){
+			printf("\n");
+		}
+	}
+	printf("\n");
+}
+
 byte compile_cstr(compiler* const comp){
 	lex_cstr(comp);
 	ASSERT_ERR(0);
+	show_tokens(comp);
 	parse_tokens(comp);
 	ASSERT_ERR(0);
-
+	show_block(comp, comp->ir, 0);
 	return 0;
 }
 
@@ -1458,8 +1670,6 @@ void compile_file(char* infile, char* outfile){
 	compile_cstr(&comp);
 	if (*comp.err != 0){
 		fprintf(stderr, "Unable to compile '%s'\n", infile);
-		fprintf(stderr, comp.err);
-		snprintf(comp.err, ERROR_BUFFER, "at %s\n", comp.str.text+comp.str.i);
 		fprintf(stderr, comp.err);
 		pool_dealloc(&mem);
 		return;
@@ -1574,6 +1784,8 @@ void run_rom(char* filename){
 }
 
 int32_t main(int argc, char** argv){
+	compile_file("test.src", "test.rom");
+	return 0;
 	if (argc <= 1){
 		printf(" -h for help\n");
 		return 0;
