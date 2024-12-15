@@ -1328,6 +1328,7 @@ word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN ter
 		token t = comp->tokens[token_index];
 		token_index += 1;
 		if (t.type == terminator){
+			last->next = NULL;
 			return token_index;
 		}
 		switch (t.type){
@@ -1405,6 +1406,11 @@ byte parse_tokens(compiler* const comp){
 	return 0;
 }
 
+#define INDENT_SHOW(d)\
+	for (byte di = 0;di<d;++di){\
+		printf(" ");\
+	}
+
 byte show_call(compiler* const comp, call_tree* call, word depth){
 	ASSERT_LOCAL(call != NULL, " call started as null\n");
 	byte first = 1;
@@ -1412,40 +1418,40 @@ byte show_call(compiler* const comp, call_tree* call, word depth){
 		char save;
 		printf("\n");
 		if (first == 1){
-			printf("(PROCEDURE)");
+			INDENT_SHOW(depth) printf("(PROCEDURE)");
 			first = 0;
 		}
 		else{
-			printf("(ARG)");
+			INDENT_SHOW(depth) printf("(ARG)");
 		}
 		switch (call->type){
 		case CALL_ARG:
-			printf("CALL:\n");
+			INDENT_SHOW(depth) printf("CALL:\n");
 			show_call(comp, call->data.call, depth+1);
 			ASSERT_ERR(0);
 			break;
 		case PUSH_ARG:
-			printf("PUSH:\n");
+			INDENT_SHOW(depth) printf("PUSH:\n");
 			show_data(comp, call->data.push, depth+1);
 			ASSERT_ERR(0);
 			break;
 		case REG_ARG:
-			printf("REGISTER: %u\n", call->data.reg);
+			INDENT_SHOW(depth) printf("REGISTER: %u\n", call->data.reg);
 			break;
 		case LABEL_ARG:
 			save = call->data.label.text[call->data.label.size];
 			call->data.label.text[call->data.label.size] = '\0';
-			printf("LABEL: %s\n", call->data.label.text);
+			INDENT_SHOW(depth) printf("LABEL: %s\n", call->data.label.text);
 			call->data.label.text[call->data.label.size] = save;
 			break;
 		case SUBLABEL_ARG:
 			save = call->data.label.text[call->data.label.size];
 			call->data.label.text[call->data.label.size] = '\0';
-			printf("SUBLABEL: .%s\n", call->data.label.text);
+			INDENT_SHOW(depth) printf("SUBLABEL: .%s\n", call->data.label.text);
 			call->data.label.text[call->data.label.size] = save;
 			break;
 		case NUMERIC_ARG:
-			printf("NUMERIC: %lx\n", call->data.number);
+			INDENT_SHOW(depth) printf("NUMERIC: %lx\n", call->data.number);
 			break;
 		}
 		call = call->next;
@@ -1459,9 +1465,10 @@ byte show_data(compiler* const comp, data_tree* data, word depth){
 		printf("\n");
 		switch (data->type){
 		case BYTE_DATA:
-			printf("BYTE SEQUENCE:\n");
+			INDENT_SHOW(depth) printf("BYTE SEQUENCE:\n");
 			for (word i = 0;i<data->data.bytes.size;){
 				word n = i+4;
+				INDENT_SHOW(depth);
 				for (;i<n;++i){
 					printf("%02x ", data->data.bytes.raw[i]);
 				}
@@ -1475,11 +1482,11 @@ byte show_data(compiler* const comp, data_tree* data, word depth){
 			printf("\n");
 			break;
 		case NEST_DATA:
-			printf("PUSH:\n");
+			INDENT_SHOW(depth) printf("PUSH:\n");
 			show_data(comp, data->data.nest, depth+1);
 			break;
 		case CODE_DATA:
-			printf("CODE:\n");
+			INDENT_SHOW(depth) printf("CODE:\n");
 			show_block(comp, data->data.code, depth+1);
 			ASSERT_ERR(0);
 			break;
@@ -1497,21 +1504,22 @@ byte show_block(compiler* const comp, code_tree* code, word depth){
 		if (code->labeling == LABELED){
 			save = code->label.text[code->label.size];
 			code->label.text[code->label.size] = '\0';
-			printf("LABELED %s:\n", code->label.text);
+			INDENT_SHOW(depth) printf("LABELED %s:\n", code->label.text);
 			code->label.text[code->label.size] = save;
 		}
 		else if (code->labeling == SUBLABELED){
 			save = code->label.text[code->label.size];
 			code->label.text[code->label.size] = '\0';
-			printf("SUBLABELED .%s:\n", code->label.text);
+			INDENT_SHOW(depth) printf("SUBLABELED .%s:\n", code->label.text);
 			code->label.text[code->label.size] = save;
 		}
 		switch (code->type){
 		case INSTRUCTION_BLOCK:
-			printf("INSTRUCTION BLOCK:\n");
+			INDENT_SHOW(depth) printf("INSTRUCTION BLOCK:\n");
 			for (word i = 0;i<code->data.code.instruction_count;++i){
 				word inst = i*4;
 				word n = inst+4;
+				INDENT_SHOW(depth);
 				for (;inst<n;++inst){
 					printf("%02x ", code->data.code.instructions[inst]);
 				}
@@ -1519,7 +1527,7 @@ byte show_block(compiler* const comp, code_tree* code, word depth){
 			}
 			break;
 		case INSTRUCTION_JUMP:
-			printf("JUMP:\n");
+			INDENT_SHOW(depth) printf("JUMP:\n");
 			for (byte i = 0;i<4;++i){
 				printf("%02x ", code->data.code.instructions[i]);
 			}
@@ -1529,7 +1537,7 @@ byte show_block(compiler* const comp, code_tree* code, word depth){
 			code->dest.text[code->dest.size] = save;
 			break;
 		case INSTRUCTION_SUBJUMP:
-			printf("SUB JUMP:\n");
+			INDENT_SHOW(depth) printf("SUB JUMP:\n");
 			for (byte i = 0;i<4;++i){
 				printf("%02x ", code->data.code.instructions[i]);
 			}
@@ -1539,12 +1547,12 @@ byte show_block(compiler* const comp, code_tree* code, word depth){
 			code->dest.text[code->dest.size] = save;
 			break;
 		case CALL_BLOCK:
-			printf("CALL:\n");
+			INDENT_SHOW(depth) printf("CALL:\n");
 			show_call(comp, code->data.call, depth+1);
 			ASSERT_ERR(0);
 			break;
 		case PUSH_BLOCK:
-			printf("PUSH:\n");
+			INDENT_SHOW(depth) printf("PUSH:\n");
 			show_data(comp, code->data.push, depth+1);
 			ASSERT_ERR(0);
 			break;
