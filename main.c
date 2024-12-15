@@ -836,9 +836,9 @@ byte lex_cstr(compiler* const comp){
 		char c = comp->str.text[comp->str.i];
 		comp->str.i += 1;
 		switch (c){
-		case ' ':
 		case '\n':
 			line += 1;
+		case ' ':
 		case '\t':
 		case '\r':
 			continue;
@@ -1301,7 +1301,7 @@ word parse_instruction_block(compiler* const comp, word token_index, code_tree* 
 				break;
 			case INT:
 				token b = comp->tokens[token_index];
-				ASSERT_LOCAL(t.type == BYTE_HEX_NUMERIC_TOKEN, PARSERR " Expected byte literal" PARSERRFIX, b.text);
+				ASSERT_LOCAL(b.type == BYTE_HEX_NUMERIC_TOKEN, PARSERR " Expected byte literal" PARSERRFIX, b.text);
 				token_index += 1;
 				code->data.code.instructions[instruction_index] = t.data.opcode;
 				code->data.code.instructions[instruction_index+1] = (b.data.number & 0xFF);
