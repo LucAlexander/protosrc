@@ -844,10 +844,29 @@ byte lex_cstr(compiler* const comp){
 		case '\r':
 			continue;
 		case ';':
+			c = comp->str.text[comp->str.i];
+			comp->str.i += 1;
+			byte multi = 0;
+			if (c == ';'){
+				multi = 1;
+			}
+			else if (c == '\n'){
+				line += 1;
+				continue;
+			}
 			while (comp->str.i < comp->str.size){
 				c = comp->str.text[comp->str.i];
 				comp->str.i += 1;
-				if (c == '\n'){
+				if (multi == 1){
+					if (c == ';'){
+						c = comp->str.text[comp->str.i];
+						if (c==';'){
+							comp->str.i += 1;
+							break;
+						}
+					}
+				}
+				else if (c == '\n'){
 					line += 1;
 					break;
 				}
