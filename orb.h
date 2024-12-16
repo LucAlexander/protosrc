@@ -134,7 +134,10 @@ typedef struct call_tree {
 		call_tree* call;
 		data_tree* push;
 		byte reg;
-		token label;
+		struct {
+			token label;
+			code_tree* dest_block;
+		} labeling;
 		int64_t number;
 	} data;
 	vm_code code;
@@ -176,19 +179,21 @@ typedef struct code_tree {
 } code_tree;
 
 typedef struct block_scope {
-	code_tree* label;
+	token pending_source;
 	block_scope* next;
+	code_tree* label;
+	code_tree** ref;
 	pool* mem;
 	enum {
-		FULFILLED_MEMBER;
-		PENDING_MEMBER;
+		FULFILLED_MEMBER,
+		PENDING_MEMBER
 	} type;
 } block_scope;
 
 MAP_DEF(block_scope)
 
-void block_scope_add_member(block_scope_map* const block, char* name, word size, code_tree* member);
-code_tree* block_scope_check_member(block_scope_map* const block, char* name, word size);
+byte block_scope_add_member(block_scope_map* const block, token t, code_tree* member);
+code_tree* block_scope_check_member(block_scope_map* const block, token t, code_tree** ref);
 
 typedef struct {
 	string str;
@@ -214,15 +219,15 @@ void setup_partition_map(REG_PARTITION_map* partmap);
 byte whitespace(char c);
 byte lex_cstr(compiler* const comp);
 word parse_register(compiler* const comp, word token_index, byte* r);
-word parse_call_block(compiler* const comp, block_scope* const sublabels, word token_index, call_tree* data);
+word parse_call_block(compiler* const comp, block_scope_map* const sublabels, word token_index, call_tree* data);
 word parse_byte_sequence(compiler* const comp, word token_index, data_tree* data);
-word parse_push_block(compiler* const comp, block_scope* const sublabels, word token_index, data_tree* data);
+word parse_push_block(compiler* const comp, block_scope_map* const sublabels, word token_index, data_tree* data);
 word parse_3reg(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
 word parse_2reg(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
 word parse_2reg_byte(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
 word parse_reg_short(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
-word parse_instruction_block(compiler* const comp, block_scope* const sublabels, word token_index, code_tree* code);
-word parse_code(compiler* const comp, block_scope* const sublabels, word token_index, code_tree* ir, TOKEN terminator);
+word parse_instruction_block(compiler* const comp, block_scope_map* const sublabels, word token_index, code_tree* code);
+word parse_code(compiler* const comp, block_scope_map* const sublabels, word token_index, code_tree* ir, TOKEN terminator);
 byte parse_tokens(compiler* const comp);
 byte show_call(compiler* const comp, call_tree* const data, word depth);
 byte show_data(compiler* const comp, data_tree* const data, word depth);
@@ -235,5 +240,6 @@ void flash_rom(byte* buffer, uint64_t size);
 void demo();
 void show_binary(char* filename);
 void run_rom(char* filename);
+byte remaining_labels(compiler* const comp, block_scope_map* const block);
 
 #endif

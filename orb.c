@@ -971,7 +971,7 @@ word parse_register(compiler* const comp, word token_index, byte* r){
 	return token_index;
 }
 
-word parse_call_block(compiler* const comp, block_scope* const sublabels, word token_index, call_tree* data){
+word parse_call_block(compiler* const comp, block_scope_map* const sublabels, word token_index, call_tree* data){
 	call_tree* last = data;
 	while (token_index < comp->token_count){
 		token t = comp->tokens[token_index];
@@ -1025,13 +1025,11 @@ word parse_call_block(compiler* const comp, block_scope* const sublabels, word t
 			ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN, PARSERR " Expected sublabel identifier following '.' token" PARSERRFIX, t.text);
 			token_index += 1;
 			data->type = SUBLABEL_ARG;
-			data->data.label = t;
-			//TODO
-			char subsave = t.text[t.size];
-			t.text[t.size] = '\0';
-			code_tree* sub_exists = code_tree_map_access(sublabels, t.text);
-			t.text[t.size] = subsave;
-			ASSERT_LOCAL(sub_exists != NULL, PARSERR " Sublabel does not exist under current label" PARSERRFIX, t.text);
+			data->data.labeling.label = t;
+			code_tree* loc = block_scope_check_member(sublabels, t, &data->data.labeling.dest_block);
+			if (loc != NULL){
+				data->data.labeling.dest_block = loc;
+			}
 			data->next = pool_request(comp->mem, sizeof(call_tree));
 			last = data;
 			data = data->next;
@@ -1039,7 +1037,7 @@ word parse_call_block(compiler* const comp, block_scope* const sublabels, word t
 			continue;
 		case IDENTIFIER_TOKEN:
 			data->type = LABEL_ARG;
-			data->data.label = t;
+			data->data.labeling.label = t;
 			data->next = pool_request(comp->mem, sizeof(call_tree));
 			last = data;
 			data = data->next;
@@ -1091,7 +1089,7 @@ word parse_byte_sequence(compiler* const comp, word token_index, data_tree* data
 	return token_index;
 }
 
-word parse_push_block(compiler* const comp, block_scope* const sublabels, word token_index, data_tree* data){
+word parse_push_block(compiler* const comp, block_scope_map* const sublabels, word token_index, data_tree* data){
 	data_tree* last = data;
 	while (token_index < comp->token_count){
 		token t = comp->tokens[token_index];
@@ -1195,7 +1193,7 @@ word parse_reg_short(compiler* const comp, OPCODE op, word instruction_index, wo
 	return token_index;
 }
 
-word parse_instruction_block(compiler* const comp, block_scope* const sublabels, word token_index, code_tree* code){
+word parse_instruction_block(compiler* const comp, block_scope_map* const sublabels, word token_index, code_tree* code){
 	token t = comp->tokens[token_index];
 	ASSERT_LOCAL(t.type == OPCODE_TOKEN, PARSERR " Expected opcode in parse instruction start" PARSERRFIX, t.text);
 	code->type = INSTRUCTION_BLOCK;
@@ -1219,12 +1217,10 @@ word parse_instruction_block(compiler* const comp, block_scope* const sublabels,
 				ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN, PARSERR " Expected identifier after sublabel token '.' in jump" PARSERRFIX, t.text);
 				token_index += 1;
 				triggered = INSTRUCTION_SUBJUMP;
-				//TODO
-				char subsave = t.text[t.size];
-				t.text[t.size] = '\0';
-				code_tree* sub_exists = code_tree_map_access(sublabels, t.text);
-				t.text[t.size] = subsave;
-				ASSERT_LOCAL(sub_exists != NULL, PARSERR " Sublabel does not exist under current label" PARSERRFIX, t.text);
+				code_tree* loc = block_scope_check_member(sublabels, t, &code->dest_block);
+				if (loc != NULL){
+					code->dest_block = loc;
+				}
 			}
 			else if (t.type == IDENTIFIER_TOKEN){
 				triggered = INSTRUCTION_JUMP;
@@ -1341,7 +1337,7 @@ word parse_instruction_block(compiler* const comp, block_scope* const sublabels,
 	return token_index;
 }
 
-word parse_code(compiler* const comp, block_scope* const sublabels, word token_index, code_tree* ir, TOKEN terminator){
+word parse_code(compiler* const comp, block_scope_map* const sublabels, word token_index, code_tree* ir, TOKEN terminator){
 	code_tree* last = ir;
 	while (token_index < comp->token_count){
 		token t = comp->tokens[token_index];
@@ -1398,10 +1394,7 @@ word parse_code(compiler* const comp, block_scope* const sublabels, word token_i
 			ASSERT_LOCAL(t.type == LABEL_TOKEN, PARSERR " Unexpected label" PARSERRFIX, t.text);
 			ir->labeling = SUBLABELED;
 			ir->label = sublabel_name;
-			//TODO
-			char* sublabel_str = pool_request(sublabels->mem, sublabel_name.size);
-			strncpy(sublabel_str, sublabel_name.text, sublabel_name.size);
-			byte duplicate_sublabel = code_tree_map_insert(sublabels, sublabel_str, ir);
+			byte duplicate_sublabel = block_scope_add_member(sublabels, sublabel_name, ir);
 			ASSERT_LOCAL(duplicate_sublabel == 0, PARSERR " Duplicate sublabel " PARSERRFIX, t.text);
 			continue;
 		case IDENTIFIER_TOKEN:
@@ -1412,9 +1405,10 @@ word parse_code(compiler* const comp, block_scope* const sublabels, word token_i
 			ASSERT_LOCAL(t.type == LABEL_TOKEN, PARSERR " Unexpected label" PARSERRFIX, t.text);
 			ir->labeling = LABELED;
 			ir->label = label_name;
-			//TODO
+			remaining_labels(comp, sublabels);
+			ASSERT_ERR(0);
 			pool_empty(sublabels->mem);
-			code_tree_map_empty(sublabels);
+			block_scope_map_empty(sublabels);
 			continue;
 		default:
 			ASSERT_LOCAL(0, PARSERR " Unexpected token type" PARSERRFIX, t.text);
@@ -1424,32 +1418,37 @@ word parse_code(compiler* const comp, block_scope* const sublabels, word token_i
 	return token_index;
 }
 
-void block_scope_add_member(block_scope* const block, char* name, word size, code_tree* member){
+byte block_scope_add_member(block_scope_map* const block, token t, code_tree* member){
+	char* name = t.text;
+	word size = t.size;
 	char save = name[size];
 	name[size] = '\0';
-	block_scope* node = block_scope_map_access(block, new_name);
+	block_scope* node = block_scope_map_access(block, name);
 	name[size] = save;
 	if (node != NULL){
 		if (node->type == FULFILLED_MEMBER){
-			return;
+			return 1;
 		}
 		node->type = FULFILLED_MEMBER;
 		while (node != NULL){
-			//TODO fix the pending ones here
+			*node->ref = member;
 			node = node->next;
 		}
-		return;
+		return 0;
 	}
 	node = pool_request(block->mem, sizeof(block_scope));
 	node->type = FULFILLED_MEMBER;
 	node->next = NULL;
 	node->label = member;
-	char* new_name = pool_requset(block->mem, size);
+	char* new_name = pool_request(block->mem, size);
 	strncpy(new_name, name, size);
 	block_scope_map_insert(block, new_name, node);
+	return 0;
 }
 
-code_tree* block_scope_check_member(block_scope_map* const block, char* name, word size){
+code_tree* block_scope_check_member(block_scope_map* const block, token t, code_tree** ref){
+	char* name = t.text;
+	word size = t.size;
 	block_scope* node = block_scope_map_access(block, name);
 	if (node != NULL){
 		if (node->type == FULFILLED_MEMBER){
@@ -1460,6 +1459,8 @@ code_tree* block_scope_check_member(block_scope_map* const block, char* name, wo
 		node = node->next;
 		node->next = temp;
 		node->type = PENDING_MEMBER;
+		node->ref = ref;
+		node->pending_source = t;
 		node->label = NULL;
 		return NULL;
 	}
@@ -1467,15 +1468,24 @@ code_tree* block_scope_check_member(block_scope_map* const block, char* name, wo
 	node->type = PENDING_MEMBER;
 	node->next = NULL;
 	node->label = NULL;
-	char* new_name = pool_requset(block->mem, size);
+	node->pending_source = t;
+	node->ref = ref;
+	char* new_name = pool_request(block->mem, size);
 	strncpy(new_name, name, size);
 	block_scope_map_insert(block, new_name, node);
 	return NULL;
 }
 
-//TODO write fix
-//TODO write check for if any pendings still exist
-//TODO fix parse integration
+byte remaining_labels(compiler* const comp, block_scope_map* const block){
+	HASHMAP_ITERATE(i){
+		block_scope_map_bucket bucket = block->buckets[i];
+		if (bucket.tag == BUCKET_EMPTY){
+			continue;
+		}
+		ASSERT_LOCAL(bucket.value->type == FULFILLED_MEMBER, PARSERR " Unresolved label jump" PARSERRFIX, bucket.value->pending_source.text);
+	}
+	return 0;
+}
 
 byte parse_tokens(compiler* const comp){
 	word token_index = 0;
@@ -1523,16 +1533,16 @@ byte show_call(compiler* const comp, call_tree* call, word depth){
 			INDENT_SHOW(depth) printf("REGISTER: %u\n", call->data.reg);
 			break;
 		case LABEL_ARG:
-			save = call->data.label.text[call->data.label.size];
-			call->data.label.text[call->data.label.size] = '\0';
-			INDENT_SHOW(depth) printf("LABEL: %s\n", call->data.label.text);
-			call->data.label.text[call->data.label.size] = save;
+			save = call->data.labeling.label.text[call->data.labeling.label.size];
+			call->data.labeling.label.text[call->data.labeling.label.size] = '\0';
+			INDENT_SHOW(depth) printf("LABEL: %s\n", call->data.labeling.label.text);
+			call->data.labeling.label.text[call->data.labeling.label.size] = save;
 			break;
 		case SUBLABEL_ARG:
-			save = call->data.label.text[call->data.label.size];
-			call->data.label.text[call->data.label.size] = '\0';
-			INDENT_SHOW(depth) printf("SUBLABEL: .%s\n", call->data.label.text);
-			call->data.label.text[call->data.label.size] = save;
+			save = call->data.labeling.label.text[call->data.labeling.label.size];
+			call->data.labeling.label.text[call->data.labeling.label.size] = '\0';
+			INDENT_SHOW(depth) printf("SUBLABEL: .%s\n", call->data.labeling.label.text);
+			call->data.labeling.label.text[call->data.labeling.label.size] = save;
 			break;
 		case NUMERIC_ARG:
 			INDENT_SHOW(depth) printf("NUMERIC: %lx\n", call->data.number);
