@@ -9,6 +9,7 @@
 MAP_IMPL(OPCODE)
 MAP_IMPL(REGISTER)
 MAP_IMPL(REG_PARTITION)
+MAP_IMPL(block_scope)
 
 #define SHORT(lit) (lit&0xFF00)>>8, lit&0xFF
 #define NOP_                   NOP, 0,    0, 0
@@ -970,7 +971,7 @@ word parse_register(compiler* const comp, word token_index, byte* r){
 	return token_index;
 }
 
-word parse_call_block(compiler* const comp, word token_index, call_tree* data){
+word parse_call_block(compiler* const comp, block_scope* const sublabels, word token_index, call_tree* data){
 	call_tree* last = data;
 	while (token_index < comp->token_count){
 		token t = comp->tokens[token_index];
@@ -989,7 +990,7 @@ word parse_call_block(compiler* const comp, word token_index, call_tree* data){
 			data->type = PUSH_ARG;
 			data->data.push = pool_request(comp->mem, sizeof(data_tree));
 			data->data.push->next = NULL;
-			token_index = parse_push_block(comp, token_index, data->data.push);
+			token_index = parse_push_block(comp, sublabels, token_index, data->data.push);
 			ASSERT_ERR(0);
 			data->next = pool_request(comp->mem, sizeof(call_tree));
 			last = data;
@@ -1000,7 +1001,7 @@ word parse_call_block(compiler* const comp, word token_index, call_tree* data){
 			data->type = CALL_ARG;
 			data->data.call = pool_request(comp->mem, sizeof(call_tree));
 			data->data.call->next = NULL;
-			token_index = parse_call_block(comp, token_index, data->data.call);
+			token_index = parse_call_block(comp, sublabels, token_index, data->data.call);
 			ASSERT_ERR(0);
 			data->next = pool_request(comp->mem, sizeof(call_tree));
 			last = data;
@@ -1025,6 +1026,12 @@ word parse_call_block(compiler* const comp, word token_index, call_tree* data){
 			token_index += 1;
 			data->type = SUBLABEL_ARG;
 			data->data.label = t;
+			//TODO
+			char subsave = t.text[t.size];
+			t.text[t.size] = '\0';
+			code_tree* sub_exists = code_tree_map_access(sublabels, t.text);
+			t.text[t.size] = subsave;
+			ASSERT_LOCAL(sub_exists != NULL, PARSERR " Sublabel does not exist under current label" PARSERRFIX, t.text);
 			data->next = pool_request(comp->mem, sizeof(call_tree));
 			last = data;
 			data = data->next;
@@ -1084,7 +1091,7 @@ word parse_byte_sequence(compiler* const comp, word token_index, data_tree* data
 	return token_index;
 }
 
-word parse_push_block(compiler* const comp, word token_index, data_tree* data){
+word parse_push_block(compiler* const comp, block_scope* const sublabels, word token_index, data_tree* data){
 	data_tree* last = data;
 	while (token_index < comp->token_count){
 		token t = comp->tokens[token_index];
@@ -1102,7 +1109,7 @@ word parse_push_block(compiler* const comp, word token_index, data_tree* data){
 		case OPEN_PUSH_TOKEN:
 			data->type = NEST_DATA;
 			data->data.nest = pool_request(comp->mem, sizeof(data_tree));
-			token_index = parse_push_block(comp, token_index, data->data.nest);
+			token_index = parse_push_block(comp, sublabels, token_index, data->data.nest);
 			ASSERT_ERR(0);
 			data->next = pool_request(comp->mem, sizeof(data_tree));
 			last = data;
@@ -1117,7 +1124,7 @@ word parse_push_block(compiler* const comp, word token_index, data_tree* data){
 			data->data.code = pool_request(comp->mem, sizeof(code_tree));
 			data->data.code->labeling = NOT_LABELED;
 			data->data.code->next = NULL;
-			token_index = parse_code(comp, token_index-1, data->data.code, CLOSE_PUSH_TOKEN);
+			token_index = parse_code(comp, sublabels, token_index-1, data->data.code, CLOSE_PUSH_TOKEN);
 			data->next = NULL;
 			return token_index;
 		}
@@ -1136,10 +1143,10 @@ word parse_3reg(compiler* const comp, OPCODE op, word instruction_index, word to
 	ASSERT_ERR(0);
 	token_index = parse_register(comp, token_index, &c);
 	ASSERT_ERR(0);
-	code->data.code.instructions[instruction_index] = op;
-	code->data.code.instructions[instruction_index+1] = a;
-	code->data.code.instructions[instruction_index+2] = b;
-	code->data.code.instructions[instruction_index+3] = c;
+	code->code.instructions[instruction_index] = op;
+	code->code.instructions[instruction_index+1] = a;
+	code->code.instructions[instruction_index+2] = b;
+	code->code.instructions[instruction_index+3] = c;
 	return token_index;
 }
 
@@ -1150,10 +1157,10 @@ word parse_2reg(compiler* const comp, OPCODE op, word instruction_index, word to
 	ASSERT_ERR(0);
 	token_index = parse_register(comp, token_index, &b);
 	ASSERT_ERR(0);
-	code->data.code.instructions[instruction_index] = op;
-	code->data.code.instructions[instruction_index+1] = a;
-	code->data.code.instructions[instruction_index+2] = b;
-	code->data.code.instructions[instruction_index+3] = 0;
+	code->code.instructions[instruction_index] = op;
+	code->code.instructions[instruction_index+1] = a;
+	code->code.instructions[instruction_index+2] = b;
+	code->code.instructions[instruction_index+3] = 0;
 	return token_index;
 }
 
@@ -1167,10 +1174,10 @@ word parse_2reg_byte(compiler* const comp, OPCODE op, word instruction_index, wo
 	token t = comp->tokens[token_index];
 	ASSERT_LOCAL(t.type == BYTE_HEX_NUMERIC_TOKEN, PARSERR " Expectd byte literal" PARSERRFIX, t.text);
 	token_index += 1;
-	code->data.code.instructions[instruction_index] = op;
-	code->data.code.instructions[instruction_index+1] = a;
-	code->data.code.instructions[instruction_index+2] = b;
-	code->data.code.instructions[instruction_index+3] = (t.data.number & 0xFF);
+	code->code.instructions[instruction_index] = op;
+	code->code.instructions[instruction_index+1] = a;
+	code->code.instructions[instruction_index+2] = b;
+	code->code.instructions[instruction_index+3] = (t.data.number & 0xFF);
 	return token_index;
 }
 
@@ -1181,19 +1188,19 @@ word parse_reg_short(compiler* const comp, OPCODE op, word instruction_index, wo
 	token t = comp->tokens[token_index];
 	ASSERT_LOCAL(t.type == SHORT_HEX_NUMERIC_TOKEN || t.type == BYTE_HEX_NUMERIC_TOKEN, PARSERR " Expected numeric literal" PARSERRFIX, t.text);
 	token_index += 1;
-	code->data.code.instructions[instruction_index] = op;
-	code->data.code.instructions[instruction_index+1] = a;
-	code->data.code.instructions[instruction_index+2] = (t.data.number & 0xFF00) >> 8;
-	code->data.code.instructions[instruction_index+3] = (t.data.number & 0xFF);
+	code->code.instructions[instruction_index] = op;
+	code->code.instructions[instruction_index+1] = a;
+	code->code.instructions[instruction_index+2] = (t.data.number & 0xFF00) >> 8;
+	code->code.instructions[instruction_index+3] = (t.data.number & 0xFF);
 	return token_index;
 }
 
-word parse_instruction_block(compiler* const comp, word token_index, code_tree* code){
+word parse_instruction_block(compiler* const comp, block_scope* const sublabels, word token_index, code_tree* code){
 	token t = comp->tokens[token_index];
 	ASSERT_LOCAL(t.type == OPCODE_TOKEN, PARSERR " Expected opcode in parse instruction start" PARSERRFIX, t.text);
 	code->type = INSTRUCTION_BLOCK;
-	code->data.code.instructions = pool_request(comp->mem, 4*BLOCK_START_SIZE);
-	code->data.code.instruction_count = 0;
+	code->code.instructions = pool_request(comp->mem, 4*BLOCK_START_SIZE);
+	code->code.instruction_count = 0;
 	word instruction_capacity = 4*BLOCK_START_SIZE;
 	word instruction_index = 0;
 	while (token_index < comp->token_count){
@@ -1212,24 +1219,30 @@ word parse_instruction_block(compiler* const comp, word token_index, code_tree* 
 				ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN, PARSERR " Expected identifier after sublabel token '.' in jump" PARSERRFIX, t.text);
 				token_index += 1;
 				triggered = INSTRUCTION_SUBJUMP;
+				//TODO
+				char subsave = t.text[t.size];
+				t.text[t.size] = '\0';
+				code_tree* sub_exists = code_tree_map_access(sublabels, t.text);
+				t.text[t.size] = subsave;
+				ASSERT_LOCAL(sub_exists != NULL, PARSERR " Sublabel does not exist under current label" PARSERRFIX, t.text);
 			}
 			else if (t.type == IDENTIFIER_TOKEN){
 				triggered = INSTRUCTION_JUMP;
 			}
 			if (triggered != INSTRUCTION_BLOCK){
-				if (code->data.code.instruction_count > 0){
+				if (code->code.instruction_count > 0){
 					code->next = pool_request(comp->mem, sizeof(code_tree));
 					code = code->next;
 					code->next = NULL;
 					code->labeling = NOT_LABELED;
 				}
 				code->type = triggered;
-				code->data.code.instruction_count = 1;
-				code->data.code.instructions = pool_request(comp->mem, 4);
-				code->data.code.instructions[0] = opc;
-				code->data.code.instructions[1] = 0;//TODO mode?
-				code->data.code.instructions[2] = 0;
-				code->data.code.instructions[3] = 0;
+				code->code.instruction_count = 1;
+				code->code.instructions = pool_request(comp->mem, 4);
+				code->code.instructions[0] = opc;
+				code->code.instructions[1] = 0;//TODO mode?
+				code->code.instructions[2] = 0;
+				code->code.instructions[3] = 0;
 				code->dest = t;
 				return token_index;
 			}
@@ -1238,23 +1251,23 @@ word parse_instruction_block(compiler* const comp, word token_index, code_tree* 
 				byte link_reg = 0;
 				token_index = parse_register(comp, token_index-1, &link_reg);
 				ASSERT_ERR(0);
-				code->data.code.instructions[instruction_index] = opc;
-				code->data.code.instructions[instruction_index+1] = 0;
-				code->data.code.instructions[instruction_index+2] = 0;
-				code->data.code.instructions[instruction_index+3] = link_reg;
+				code->code.instructions[instruction_index] = opc;
+				code->code.instructions[instruction_index+1] = 0;
+				code->code.instructions[instruction_index+2] = 0;
+				code->code.instructions[instruction_index+3] = link_reg;
 				break;
 			case SHORT_HEX_NUMERIC_TOKEN:
 			case BYTE_HEX_NUMERIC_TOKEN:
-				code->data.code.instructions[instruction_index] = opc;
-				code->data.code.instructions[instruction_index+1] = 1;
-				code->data.code.instructions[instruction_index+2] = (t.data.number & 0xFF00) >> 8;
-				code->data.code.instructions[instruction_index+3] = (t.data.number & 0xFF);
+				code->code.instructions[instruction_index] = opc;
+				code->code.instructions[instruction_index+1] = 1;
+				code->code.instructions[instruction_index+2] = (t.data.number & 0xFF00) >> 8;
+				code->code.instructions[instruction_index+3] = (t.data.number & 0xFF);
 				break;
 			default:
-				code->data.code.instructions[instruction_index] = opc;
-				code->data.code.instructions[instruction_index+1] = 1;
-				code->data.code.instructions[instruction_index+2] = 0;
-				code->data.code.instructions[instruction_index+3] = 0;
+				code->code.instructions[instruction_index] = opc;
+				code->code.instructions[instruction_index+1] = 1;
+				code->code.instructions[instruction_index+2] = 0;
+				code->code.instructions[instruction_index+3] = 0;
 				token_index -= 1;
 			}
 		}
@@ -1285,50 +1298,50 @@ word parse_instruction_block(compiler* const comp, word token_index, code_tree* 
 				byte r = 0;
 				token_index = parse_register(comp, token_index, &r);
 				ASSERT_ERR(0);
-				code->data.code.instructions[instruction_index] = t.data.opcode;
-				code->data.code.instructions[instruction_index+1] = r;
-				code->data.code.instructions[instruction_index+2] = 0;
-				code->data.code.instructions[instruction_index+3] = 0;
+				code->code.instructions[instruction_index] = t.data.opcode;
+				code->code.instructions[instruction_index+1] = r;
+				code->code.instructions[instruction_index+2] = 0;
+				code->code.instructions[instruction_index+3] = 0;
 				break;
 			case RES: case PSS:
 				token s = comp->tokens[token_index];
 				ASSERT_LOCAL(s.type == SHORT_HEX_NUMERIC_TOKEN || s.type == BYTE_HEX_NUMERIC_TOKEN, PARSERR " Expected numeric literal" PARSERRFIX, s.text);
 				token_index += 1;
-				code->data.code.instructions[instruction_index] = t.data.opcode;
-				code->data.code.instructions[instruction_index+1] = (s.data.number & 0xFF00) >> 8;
-				code->data.code.instructions[instruction_index+2] = (s.data.number & 0xFF);
-				code->data.code.instructions[instruction_index+3] = 0;
+				code->code.instructions[instruction_index] = t.data.opcode;
+				code->code.instructions[instruction_index+1] = (s.data.number & 0xFF00) >> 8;
+				code->code.instructions[instruction_index+2] = (s.data.number & 0xFF);
+				code->code.instructions[instruction_index+3] = 0;
 				break;
 			case INT:
 				token b = comp->tokens[token_index];
 				ASSERT_LOCAL(b.type == BYTE_HEX_NUMERIC_TOKEN, PARSERR " Expected byte literal" PARSERRFIX, b.text);
 				token_index += 1;
-				code->data.code.instructions[instruction_index] = t.data.opcode;
-				code->data.code.instructions[instruction_index+1] = (b.data.number & 0xFF);
-				code->data.code.instructions[instruction_index+2] = 0;
-				code->data.code.instructions[instruction_index+3] = 0;
+				code->code.instructions[instruction_index] = t.data.opcode;
+				code->code.instructions[instruction_index+1] = (b.data.number & 0xFF);
+				code->code.instructions[instruction_index+2] = 0;
+				code->code.instructions[instruction_index+3] = 0;
 				break;
 			case NOP: case REI: case ESC: case CAL:
-				code->data.code.instructions[instruction_index] = t.data.opcode;
-				code->data.code.instructions[instruction_index+1] = 0;
-				code->data.code.instructions[instruction_index+2] = 0;
-				code->data.code.instructions[instruction_index+3] = 0;
+				code->code.instructions[instruction_index] = t.data.opcode;
+				code->code.instructions[instruction_index+1] = 0;
+				code->code.instructions[instruction_index+2] = 0;
+				code->code.instructions[instruction_index+3] = 0;
 				break;
 			default:
 				ASSERT_LOCAL(0, PARSERR " Unknown opcode" PARSERRFIX, t.text);
 			}
 		}
 		instruction_index += 4;
-		code->data.code.instruction_count += 1;
+		code->code.instruction_count += 1;
 		if (instruction_index >= instruction_capacity){
-			pool_request(comp->mem, 4*code->data.code.instruction_count);
+			pool_request(comp->mem, 4*code->code.instruction_count);
 			instruction_capacity *= 2;
 		}
 	}
 	return token_index;
 }
 
-word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN terminator){
+word parse_code(compiler* const comp, block_scope* const sublabels, word token_index, code_tree* ir, TOKEN terminator){
 	code_tree* last = ir;
 	while (token_index < comp->token_count){
 		token t = comp->tokens[token_index];
@@ -1339,7 +1352,7 @@ word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN ter
 		}
 		switch (t.type){
 		case OPCODE_TOKEN:
-			token_index = parse_instruction_block(comp, token_index-1, ir);
+			token_index = parse_instruction_block(comp, sublabels, token_index-1, ir);
 			ASSERT_ERR(0);
 			while (ir->next != NULL){
 				ir = ir->next;
@@ -1354,7 +1367,7 @@ word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN ter
 			ir->type = CALL_BLOCK;
 			ir->data.call = pool_request(comp->mem, sizeof(call_tree));
 			ir->data.call->next = NULL;
-			token_index = parse_call_block(comp, token_index, ir->data.call);
+			token_index = parse_call_block(comp, sublabels, token_index, ir->data.call);
 			ASSERT_ERR(0);
 			ir->next = pool_request(comp->mem, sizeof(code_tree));
 			last = ir;
@@ -1366,7 +1379,7 @@ word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN ter
 			ir->type = PUSH_BLOCK;
 			ir->data.push = pool_request(comp->mem, sizeof(data_tree));
 			ir->data.push->next = NULL;
-			token_index = parse_push_block(comp, token_index, ir->data.push);
+			token_index = parse_push_block(comp, sublabels, token_index, ir->data.push);
 			ASSERT_ERR(0);
 			ir->next = pool_request(comp->mem, sizeof(code_tree));
 			last = ir;
@@ -1382,9 +1395,14 @@ word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN ter
 			token sublabel_name = t;
 			t = comp->tokens[token_index];
 			token_index += 1;
-			ASSERT_LOCAL(t.type = LABEL_TOKEN, PARSERR " Unexpected label" PARSERRFIX, t.text);
+			ASSERT_LOCAL(t.type == LABEL_TOKEN, PARSERR " Unexpected label" PARSERRFIX, t.text);
 			ir->labeling = SUBLABELED;
 			ir->label = sublabel_name;
+			//TODO
+			char* sublabel_str = pool_request(sublabels->mem, sublabel_name.size);
+			strncpy(sublabel_str, sublabel_name.text, sublabel_name.size);
+			byte duplicate_sublabel = code_tree_map_insert(sublabels, sublabel_str, ir);
+			ASSERT_LOCAL(duplicate_sublabel == 0, PARSERR " Duplicate sublabel " PARSERRFIX, t.text);
 			continue;
 		case IDENTIFIER_TOKEN:
 			ASSERT_LOCAL(ir->labeling == NOT_LABELED, PARSERR " Double labeled instruction" PARSERRFIX, t.text);
@@ -1394,6 +1412,9 @@ word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN ter
 			ASSERT_LOCAL(t.type == LABEL_TOKEN, PARSERR " Unexpected label" PARSERRFIX, t.text);
 			ir->labeling = LABELED;
 			ir->label = label_name;
+			//TODO
+			pool_empty(sublabels->mem);
+			code_tree_map_empty(sublabels);
 			continue;
 		default:
 			ASSERT_LOCAL(0, PARSERR " Unexpected token type" PARSERRFIX, t.text);
@@ -1403,12 +1424,69 @@ word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN ter
 	return token_index;
 }
 
+void block_scope_add_member(block_scope* const block, char* name, word size, code_tree* member){
+	char save = name[size];
+	name[size] = '\0';
+	block_scope* node = block_scope_map_access(block, new_name);
+	name[size] = save;
+	if (node != NULL){
+		if (node->type == FULFILLED_MEMBER){
+			return;
+		}
+		node->type = FULFILLED_MEMBER;
+		while (node != NULL){
+			//TODO fix the pending ones here
+			node = node->next;
+		}
+		return;
+	}
+	node = pool_request(block->mem, sizeof(block_scope));
+	node->type = FULFILLED_MEMBER;
+	node->next = NULL;
+	node->label = member;
+	char* new_name = pool_requset(block->mem, size);
+	strncpy(new_name, name, size);
+	block_scope_map_insert(block, new_name, node);
+}
+
+code_tree* block_scope_check_member(block_scope_map* const block, char* name, word size){
+	block_scope* node = block_scope_map_access(block, name);
+	if (node != NULL){
+		if (node->type == FULFILLED_MEMBER){
+			return node->label;
+		}
+		block_scope* temp = node->next;
+		node->next = pool_request(block->mem, sizeof(block_scope));
+		node = node->next;
+		node->next = temp;
+		node->type = PENDING_MEMBER;
+		node->label = NULL;
+		return NULL;
+	}
+	node = pool_request(block->mem, sizeof(block_scope));
+	node->type = PENDING_MEMBER;
+	node->next = NULL;
+	node->label = NULL;
+	char* new_name = pool_requset(block->mem, size);
+	strncpy(new_name, name, size);
+	block_scope_map_insert(block, new_name, node);
+	return NULL;
+}
+
+//TODO write fix
+//TODO write check for if any pendings still exist
+//TODO fix parse integration
+
 byte parse_tokens(compiler* const comp){
 	word token_index = 0;
 	comp->ir = pool_request(comp->mem, sizeof(code_tree));
 	comp->ir->labeling = NOT_LABELED;
 	comp->ir->next = NULL;
-	parse_code(comp, token_index, comp->ir, NONE_TOKEN);
+	comp->labels = block_scope_map_init(comp->mem);
+	pool sublabel_pool = pool_alloc(AUX_SIZE, POOL_STATIC);
+	block_scope_map sublabels = block_scope_map_init(&sublabel_pool);
+	parse_code(comp, &sublabels, token_index, comp->ir, NONE_TOKEN);
+	pool_dealloc(&sublabel_pool);
 	return 0;
 }
 
@@ -1522,12 +1600,12 @@ byte show_block(compiler* const comp, code_tree* code, word depth){
 		switch (code->type){
 		case INSTRUCTION_BLOCK:
 			INDENT_SHOW(depth) printf("INSTRUCTION BLOCK:\n");
-			for (word i = 0;i<code->data.code.instruction_count;++i){
+			for (word i = 0;i<code->code.instruction_count;++i){
 				word inst = i*4;
 				word n = inst+4;
 				INDENT_SHOW(depth);
 				for (;inst<n;++inst){
-					printf("%02x ", code->data.code.instructions[inst]);
+					printf("%02x ", code->code.instructions[inst]);
 				}
 				printf("\n");
 			}
@@ -1535,7 +1613,7 @@ byte show_block(compiler* const comp, code_tree* code, word depth){
 		case INSTRUCTION_JUMP:
 			INDENT_SHOW(depth) printf("JUMP:\n");
 			for (byte i = 0;i<4;++i){
-				printf("%02x ", code->data.code.instructions[i]);
+				printf("%02x ", code->code.instructions[i]);
 			}
 			save = code->dest.text[code->dest.size];
 			code->dest.text[code->dest.size] = '\0';
@@ -1545,7 +1623,7 @@ byte show_block(compiler* const comp, code_tree* code, word depth){
 		case INSTRUCTION_SUBJUMP:
 			INDENT_SHOW(depth) printf("SUB JUMP:\n");
 			for (byte i = 0;i<4;++i){
-				printf("%02x ", code->data.code.instructions[i]);
+				printf("%02x ", code->code.instructions[i]);
 			}
 			save = code->dest.text[code->dest.size];
 			code->dest.text[code->dest.size] = '\0';

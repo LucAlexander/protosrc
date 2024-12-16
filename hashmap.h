@@ -37,7 +37,8 @@ uint8_t type##_bucket_insert(type##_map_bucket* bucket, pool* const mem, const c
 type* type##_bucket_access(type##_map_bucket* bucket, const char* const key);\
 uint8_t type##_map_insert(type##_map* const m, const char* const key, type* value);\
 type* type##_map_access(type##_map* const m, const char* const key);\
-type* type##_map_access_by_hash(type##_map* const m, uint32_t hash, const char* const key);
+type* type##_map_access_by_hash(type##_map* const m, uint32_t hash, const char* const key);\
+void type##_map_empty(type##_map* const m);
 
 
 #define MAP_IMPL(type)\
@@ -110,7 +111,14 @@ type* type##_map_access(type##_map* const m, const char* const key){\
 type* type##_map_access_by_hash(type##_map* const m, uint32_t hash, const char* const key){\
 	hash = hash%MAP_SIZE;\
 	return type##_bucket_access(&m->buckets[hash], key);\
+}\
+\
+void type##_map_empty(type##_map* const m){\
+	for (uint8_t i = 0;i<MAP_SIZE;++i){\
+		m->buckets[i] = (type##_map_bucket){\
+			.tag=BUCKET_EMPTY\
+		};\
+	}\
 }
-
 
 #endif

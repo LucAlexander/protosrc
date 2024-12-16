@@ -104,13 +104,14 @@ typedef struct {
 typedef struct code_tree code_tree;
 typedef struct data_tree data_tree;
 typedef struct call_tree call_tree;
+typedef struct block_scope block_scope;
+
+typedef struct vm_code {
+	byte* instructions;
+	word instruction_count;
+} vm_code;
 
 typedef struct data_tree {
-	enum {
-		BYTE_DATA,
-		NEST_DATA,
-		CODE_DATA
-	} type;
 	union {
 		struct {
 			byte* raw;
@@ -119,10 +120,25 @@ typedef struct data_tree {
 		data_tree* nest;
 		code_tree* code;
 	} data;
+	vm_code code;
 	data_tree* next;
+	enum {
+		BYTE_DATA,
+		NEST_DATA,
+		CODE_DATA
+	} type;
 } data_tree;
 
 typedef struct call_tree {
+	union {
+		call_tree* call;
+		data_tree* push;
+		byte reg;
+		token label;
+		int64_t number;
+	} data;
+	vm_code code;
+	call_tree* next;
 	enum {
 		CALL_ARG,
 		PUSH_ARG,
@@ -131,19 +147,20 @@ typedef struct call_tree {
 		SUBLABEL_ARG,
 		NUMERIC_ARG
 	} type;
-	union {
-		call_tree* call;
-		data_tree* push;
-		byte reg;
-		token label;
-		int64_t number;
-	} data;
-	call_tree* next;
 } call_tree;
 
 #define BLOCK_START_SIZE 8
 
 typedef struct code_tree {
+	token label;
+	token dest;
+	vm_code code;
+	union {
+		data_tree* push;
+		call_tree* call;
+	} data;
+	code_tree* dest_block;
+	code_tree* next;
 	enum {
 		INSTRUCTION_BLOCK,
 		INSTRUCTION_JUMP,
@@ -151,23 +168,27 @@ typedef struct code_tree {
 		CALL_BLOCK,
 		PUSH_BLOCK
 	} type;
-	union {
-		struct {
-			byte* instructions;
-			word instruction_count;
-		} code;
-		data_tree* push;
-		call_tree* call;
-	} data;
 	enum {
 		NOT_LABELED,
 		LABELED,
 		SUBLABELED
 	} labeling;
-	token label;
-	token dest;
-	code_tree* next;
 } code_tree;
+
+typedef struct block_scope {
+	code_tree* label;
+	block_scope* next;
+	pool* mem;
+	enum {
+		FULFILLED_MEMBER;
+		PENDING_MEMBER;
+	} type;
+} block_scope;
+
+MAP_DEF(block_scope)
+
+void block_scope_add_member(block_scope_map* const block, char* name, word size, code_tree* member);
+code_tree* block_scope_check_member(block_scope_map* const block, char* name, word size);
 
 typedef struct {
 	string str;
@@ -178,6 +199,7 @@ typedef struct {
 	token* tokens;
 	word token_count;
 	code_tree* ir;
+	block_scope_map labels;
 	pool* mem;
 	char* err;
 } compiler;
@@ -192,15 +214,15 @@ void setup_partition_map(REG_PARTITION_map* partmap);
 byte whitespace(char c);
 byte lex_cstr(compiler* const comp);
 word parse_register(compiler* const comp, word token_index, byte* r);
-word parse_call_block(compiler* const comp, word token_index, call_tree* data);
+word parse_call_block(compiler* const comp, block_scope* const sublabels, word token_index, call_tree* data);
 word parse_byte_sequence(compiler* const comp, word token_index, data_tree* data);
-word parse_push_block(compiler* const comp, word token_index, data_tree* data);
+word parse_push_block(compiler* const comp, block_scope* const sublabels, word token_index, data_tree* data);
 word parse_3reg(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
 word parse_2reg(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
 word parse_2reg_byte(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
 word parse_reg_short(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
-word parse_instruction_block(compiler* const comp, word token_index, code_tree* code);
-word parse_code(compiler* const comp, word token_index, code_tree* ir, TOKEN terminator);
+word parse_instruction_block(compiler* const comp, block_scope* const sublabels, word token_index, code_tree* code);
+word parse_code(compiler* const comp, block_scope* const sublabels, word token_index, code_tree* ir, TOKEN terminator);
 byte parse_tokens(compiler* const comp);
 byte show_call(compiler* const comp, call_tree* const data, word depth);
 byte show_data(compiler* const comp, data_tree* const data, word depth);
