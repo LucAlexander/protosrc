@@ -843,6 +843,16 @@ byte lex_cstr(compiler* const comp){
 		case '\t':
 		case '\r':
 			continue;
+		case ';':
+			while (comp->str.i < comp->str.size){
+				c = comp->str.text[comp->str.i];
+				comp->str.i += 1;
+				if (c == '\n'){
+					line += 1;
+					break;
+				}
+			}
+			continue;
 		case OPEN_CALL_TOKEN:
 		case CLOSE_CALL_TOKEN:
 		case OPEN_PUSH_TOKEN:
