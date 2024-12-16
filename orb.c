@@ -1026,9 +1026,9 @@ word parse_call_block(compiler* const comp, block_scope_map* const sublabels, wo
 			token_index += 1;
 			data->type = SUBLABEL_ARG;
 			data->data.labeling.label = t;
-			code_tree* loc = block_scope_check_member(sublabels, t, &data->data.labeling.dest_block);
-			if (loc != NULL){
-				data->data.labeling.dest_block = loc;
+			code_tree* subloc = block_scope_check_member(sublabels, t, &data->data.labeling.dest_block);
+			if (subloc != NULL){
+				data->data.labeling.dest_block = subloc;
 			}
 			data->next = pool_request(comp->mem, sizeof(call_tree));
 			last = data;
@@ -1038,6 +1038,10 @@ word parse_call_block(compiler* const comp, block_scope_map* const sublabels, wo
 		case IDENTIFIER_TOKEN:
 			data->type = LABEL_ARG;
 			data->data.labeling.label = t;
+			code_tree* loc = block_scope_check_member(&comp->labels, t, &data->data.labeling.dest_block);
+			if (loc != NULL){
+				data->data.labeling.dest_block = loc;
+			}
 			data->next = pool_request(comp->mem, sizeof(call_tree));
 			last = data;
 			data = data->next;
@@ -1224,6 +1228,10 @@ word parse_instruction_block(compiler* const comp, block_scope_map* const sublab
 			}
 			else if (t.type == IDENTIFIER_TOKEN){
 				triggered = INSTRUCTION_JUMP;
+				code_tree* loc = block_scope_check_member(&comp->labels, t, &code->dest_block);
+				if (loc != NULL){
+					code->dest_block = loc;
+				}
 			}
 			if (triggered != INSTRUCTION_BLOCK){
 				if (code->code.instruction_count > 0){
@@ -1395,7 +1403,7 @@ word parse_code(compiler* const comp, block_scope_map* const sublabels, word tok
 			ir->labeling = SUBLABELED;
 			ir->label = sublabel_name;
 			byte duplicate_sublabel = block_scope_add_member(sublabels, sublabel_name, ir);
-			ASSERT_LOCAL(duplicate_sublabel == 0, PARSERR " Duplicate sublabel " PARSERRFIX, t.text);
+			ASSERT_LOCAL(duplicate_sublabel == 0, PARSERR " Duplicate sublabel " PARSERRFIX, sublabel_name.text);
 			continue;
 		case IDENTIFIER_TOKEN:
 			ASSERT_LOCAL(ir->labeling == NOT_LABELED, PARSERR " Double labeled instruction" PARSERRFIX, t.text);
@@ -1409,6 +1417,8 @@ word parse_code(compiler* const comp, block_scope_map* const sublabels, word tok
 			ASSERT_ERR(0);
 			pool_empty(sublabels->mem);
 			block_scope_map_empty(sublabels);
+			byte duplicate_label = block_scope_add_member(&comp->labels, label_name, ir);
+			ASSERT_LOCAL(duplicate_label == 0, PARSERR " Duplicate label " PARSERRFIX, label_name.text);
 			continue;
 		default:
 			ASSERT_LOCAL(0, PARSERR " Unexpected token type" PARSERRFIX, t.text);
@@ -1449,7 +1459,10 @@ byte block_scope_add_member(block_scope_map* const block, token t, code_tree* me
 code_tree* block_scope_check_member(block_scope_map* const block, token t, code_tree** ref){
 	char* name = t.text;
 	word size = t.size;
+	char save = name[size];
+	name[size] = '\0';
 	block_scope* node = block_scope_map_access(block, name);
+	name[size] = save;
 	if (node != NULL){
 		if (node->type == FULFILLED_MEMBER){
 			return node->label;
@@ -1497,6 +1510,8 @@ byte parse_tokens(compiler* const comp){
 	block_scope_map sublabels = block_scope_map_init(&sublabel_pool);
 	parse_code(comp, &sublabels, token_index, comp->ir, NONE_TOKEN);
 	pool_dealloc(&sublabel_pool);
+	remaining_labels(comp, &comp->labels);
+	ASSERT_ERR(0);
 	return 0;
 }
 
