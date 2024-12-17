@@ -1518,13 +1518,25 @@ code_tree* block_scope_check_member(block_scope_map* const block, token t, code_
 	return NULL;
 }
 
+byte check_label_bucket(compiler* const comp, block_scope_map_bucket* bucket){
+	if (bucket->tag == BUCKET_EMPTY){
+		return 0;
+	}
+	ASSERT_LOCAL(bucket->value->type == FULFILLED_MEMBER, PARSERR " Unresolved label jump" PARSERRFIX, bucket->value->pending_source.text);
+	if (bucket->left != NULL){
+		check_label_bucket(comp, bucket->left);
+	}
+	if (bucket->right != NULL){
+		check_label_bucket(comp, bucket->right);
+	}
+	return 0;
+}
+
 byte remaining_labels(compiler* const comp, block_scope_map* const block){
 	HASHMAP_ITERATE(i){
-		block_scope_map_bucket bucket = block->buckets[i];
-		if (bucket.tag == BUCKET_EMPTY){
-			continue;
-		}
-		ASSERT_LOCAL(bucket.value->type == FULFILLED_MEMBER, PARSERR " Unresolved label jump" PARSERRFIX, bucket.value->pending_source.text);
+		block_scope_map_bucket* bucket = &block->buckets[i];
+		check_label_bucket(comp, bucket);
+		ASSERT_ERR(0);
 	}
 	return 0;
 }

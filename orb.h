@@ -240,6 +240,7 @@ void flash_rom(byte* buffer, uint64_t size);
 void demo();
 void show_binary(char* filename);
 void run_rom(char* filename);
+byte check_label_bucket(compiler* const comp, block_scope_map_bucket* bucket);
 byte remaining_labels(compiler* const comp, block_scope_map* const block);
 
 #endif
