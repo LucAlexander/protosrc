@@ -4,7 +4,7 @@ run:
 	./orb
 
 compile:
-	gcc -g -Wall -o orb orb.c orb.c
+	gcc -g -Wall -o orb orb.c pool.c
 
 
 clean:

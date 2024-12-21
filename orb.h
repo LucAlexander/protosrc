@@ -192,8 +192,18 @@ typedef struct block_scope {
 
 MAP_DEF(block_scope)
 
+#define PUSH_LABEL_SCOPE_LIMIT 4
+
+typedef struct bsms {
+	block_scope_map* map;
+	byte size;
+	byte capacity;
+} bsms;
+
 byte block_scope_add_member(block_scope_map* const block, token t, code_tree* member);
 code_tree* block_scope_check_member(block_scope_map* const block, token t, code_tree** ref);
+void bsms_push(bsms* stack);
+void bsms_pop(bsms* stack);
 
 typedef struct {
 	string str;
@@ -204,7 +214,7 @@ typedef struct {
 	token* tokens;
 	word token_count;
 	code_tree* ir;
-	block_scope_map labels;
+	bsms labels;
 	pool* mem;
 	char* err;
 } compiler;
@@ -219,15 +229,15 @@ void setup_partition_map(REG_PARTITION_map* partmap);
 byte whitespace(char c);
 byte lex_cstr(compiler* const comp);
 word parse_register(compiler* const comp, word token_index, byte* r);
-word parse_call_block(compiler* const comp, block_scope_map* const sublabels, word token_index, call_tree* data);
+word parse_call_block(compiler* const comp, bsms* const sublabels, word token_index, call_tree* data);
 word parse_byte_sequence(compiler* const comp, word token_index, data_tree* data);
-word parse_push_block(compiler* const comp, block_scope_map* const sublabels, word token_index, data_tree* data);
+word parse_push_block(compiler* const comp, bsms* const sublabels, word token_index, data_tree* data);
 word parse_3reg(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
 word parse_2reg(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
 word parse_2reg_byte(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
 word parse_reg_short(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code);
-word parse_instruction_block(compiler* const comp, block_scope_map* const sublabels, word token_index, code_tree* code);
-word parse_code(compiler* const comp, block_scope_map* const sublabels, word token_index, code_tree* ir, TOKEN terminator);
+word parse_instruction_block(compiler* const comp, bsms* const sublabels, word token_index, code_tree* code);
+word parse_code(compiler* const comp, bsms* const sublabels, word token_index, code_tree* ir, TOKEN terminator);
 byte parse_tokens(compiler* const comp);
 byte show_call(compiler* const comp, call_tree* const data, word depth);
 byte show_data(compiler* const comp, data_tree* const data, word depth);
