@@ -1532,6 +1532,15 @@ code_tree* block_scope_check_member(block_scope_map* const block, token t, code_
 }
 
 void bsms_push(bsms* stack){
+	if (stack->size >= stack->capacity){
+		byte old_cap = stack->capacity;
+		stack->capacity *= 2;
+		block_scope_map* old = stack->map;
+		stack->map = pool_request(old->mem, sizeof(block_scope_map)*stack->capacity);
+		for (byte i = 0;i<old_cap;++i){
+			stack->map[i] = old[i];
+		}
+	}
 	stack->map[stack->size] = block_scope_map_init(stack->map[0].mem);
 	stack->size += 1;
 }
