@@ -88,89 +88,78 @@ MAP_IMPL(block_scope)
 
 #define REG(p, r) (p<<4 | r)
 
-#define INSTRUCTION_WIDTH 0x4
-#define PROGRAM_START 0x200
-#define MEMORY_SIZE 0x100000
+#define SHOW_REG(mach, r)\
+	printf("                                   %s: %016lx (%lu) (%ld)\n\033[0m\033[1m", #r, mach->reg[r], mach->reg[r], mach->reg[r]);
 
-word reg[REGISTER_COUNT];
-uint16_t* quar[REGISTER_COUNT*4];
-uint32_t* half[REGISTER_COUNT];
-byte* lo[REGISTER_COUNT];
-byte* hi[REGISTER_COUNT];
-byte mem[MEMORY_SIZE];
-
-#define SHOW_REG(r)\
-	printf("                                   %s: %016lx (%lu) (%ld)\n\033[0m\033[1m", #r, reg[r], reg[r], reg[r]);
-
-void show_registers(){
+void show_registers(machine* const mach){
 	printf("                                   \033[4mCPU Registers\033[0m\n");
 	printf("\033[1;32m");
-	SHOW_REG(IP);
+	SHOW_REG(mach, IP);
 	printf("\033[1;33m");
-	SHOW_REG(SP);
-	SHOW_REG(CR);
+	SHOW_REG(mach, SP);
+	SHOW_REG(mach, CR);
 	printf("\033[1;31m");
-	SHOW_REG(FP);
-	SHOW_REG(SR);
-	SHOW_REG(LR);
-	SHOW_REG(AR);
+	SHOW_REG(mach, FP);
+	SHOW_REG(mach, SR);
+	SHOW_REG(mach, LR);
+	SHOW_REG(mach, AR);
 printf("\n");
-	SHOW_REG(R0);
-	SHOW_REG(R1);
-	SHOW_REG(R2);
-	SHOW_REG(R3);
-	SHOW_REG(R4);
-	SHOW_REG(R5);
-	SHOW_REG(R6);
-	SHOW_REG(R7);
-	SHOW_REG(R8);
+	SHOW_REG(mach, R0);
+	SHOW_REG(mach, R1);
+	SHOW_REG(mach, R2);
+	SHOW_REG(mach, R3);
+	SHOW_REG(mach, R4);
+	SHOW_REG(mach, R5);
+	SHOW_REG(mach, R6);
+	SHOW_REG(mach, R7);
+	SHOW_REG(mach, R8);
 	printf("\n");
 }
 
-void show_mem(){
+void show_mem(machine* const mach){
 	printf("\033[4mProgram / Stack\033[0m\n");
 	printf("\033[1;32m");
 	for (byte i = 0;i<INSTRUCTION_WIDTH*8;){
-		word address = PROGRAM_START+(INSTRUCTION_WIDTH*reg[IP]);
+		word address = PROGRAM_START+(INSTRUCTION_WIDTH*mach->reg[IP]);
 		printf("%016lx | ", address+i);
 		byte m = i+INSTRUCTION_WIDTH;
 		for (;i<m;++i){
-			printf("%02x \033[0m\033[1m", mem[address+i]);
+			printf("%02x \033[0m\033[1m", mach->mem[address+i]);
 		}
 		printf("\033[0m\033[1m\n");
 	}
 	printf("...              | ...\n");
-	word left = reg[SP];
+	word left = mach->reg[SP];
 	while ((left--) % 4 != 1){}
 	word bottom = MEMORY_SIZE;
-	if (reg[SP] < bottom-INSTRUCTION_WIDTH*24){
-		bottom = reg[SP] + INSTRUCTION_WIDTH*24;
+	if (mach->reg[SP] < bottom-INSTRUCTION_WIDTH*24){
+		bottom = mach->reg[SP] + INSTRUCTION_WIDTH*24;
 	}
 	for (word i = left;i<bottom;){
 		word m = i+INSTRUCTION_WIDTH;
 		printf("%016lx | ", i);
 		for (;i<m;++i){
-			if (i == reg[SP]){
+			if (i == mach->reg[SP]){
 				printf("\033[1;33m");
 			}
-			else if (i == reg[FP]){
+			else if (i == mach->reg[FP]){
 				printf("\033[1;31m");
 			}
-			printf("%02x \033[0m\033[1m", mem[i]);
+			printf("%02x \033[0m\033[1m", mach->mem[i]);
 		}
 		printf("\033[0m\033[1m\n");
 	}
 }
 
-void show_machine(){
+void show_machine(machine* const mach){
 	printf("\033[2J");
 	printf("\033[H\033[1m");
-	show_registers();
+	show_registers(mach);
 	printf("\033[H\033[1m");
-	show_mem();
+	show_mem(mach);
 }
      
-#define NEXT (mem[++ip])
+#define NEXT (mach->mem[++ip])
 #define SHORT_LITERAL ((NEXT<<8)+(NEXT))
 #define LOAD_REG(b, v)\
 {\
@@ -178,19 +167,19 @@ void show_machine(){
 	byte partition = (b&0x70) >> 4;\
 	switch (partition){\
 	case FULL:\
-reg[r] = v;\
+		mach->reg[r] = v;\
 		break;\
 	case HALF:\
-		*half[r] = v;\
+		*mach->half[r] = v;\
 		break;\
 	case LO:\
-		*lo[r] = v;\
+		*mach->lo[r] = v;\
 		break;\
 	case HI:\
-		*hi[r] = v;\
+		*mach->hi[r] = v;\
 		break;\
 	default:\
-		*quar[(r*4)+partition] = v;\
+		*mach->quar[(r*4)+partition] = v;\
 		break;\
 	}\
 }
@@ -201,19 +190,19 @@ reg[r] = v;\
 	byte partition = (b&0x70) >> 4;\
 	switch (partition){\
 	case FULL:\
-		reg[r] = *(word*)(&mem[v]);\
+		mach->reg[r] = *(word*)(&mach->mem[v]);\
 		break;\
 	case HALF:\
-		*half[r] = *(uint32_t*)(&mem[v]);\
+		*mach->half[r] = *(uint32_t*)(&mach->mem[v]);\
 		break;\
 	case LO:\
-		*lo[r] = mem[v];\
+		*mach->lo[r] = mach->mem[v];\
 		break;\
 	case HI:\
-		*hi[r] = mem[v];\
+		*mach->hi[r] = mach->mem[v];\
 		break;\
 	default:\
-		*quar[(r*4)+partition] = *(uint16_t*)(&mem[v]);\
+		*mach->quar[(r*4)+partition] = *(uint16_t*)(&mach->mem[v]);\
 		break;\
 	}\
 }
@@ -224,19 +213,19 @@ reg[r] = v;\
 	byte partition = (b&0x70) >> 4;\
 	switch (partition){\
 	case FULL:\
-		v = reg[r];\
+		v = mach->reg[r];\
 		break;\
 	case HALF:\
-		v = *half[r];\
+		v = *mach->half[r];\
 		break;\
 	case LO:\
-		v = *lo[r];\
+		v = *mach->lo[r];\
 		break;\
 	case HI:\
-		v = *hi[r];\
+		v = *mach->hi[r];\
 		break;\
 	default:\
-		v = *quar[(r*4)+partition];\
+		v = *mach->quar[(r*4)+partition];\
 		break;\
 	}\
 }
@@ -247,19 +236,19 @@ reg[r] = v;\
 	byte partition = (b&0x70) >> 4;\
 	switch (partition){\
 	case FULL:\
-		*(word*)(&mem[a]) = reg[r];\
+		*(word*)(&mach->mem[a]) = mach->reg[r];\
 		break;\
 	case HALF:\
-		*(uint32_t*)(&mem[a]) = *half[r];\
+		*(uint32_t*)(&mach->mem[a]) = *mach->half[r];\
 		break;\
 	case LO:\
-		*(byte*)(&mem[a]) = *lo[r];\
+		*(byte*)(&mach->mem[a]) = *mach->lo[r];\
 		break;\
 	case HI:\
-		*(byte*)(&mem[a]) = *hi[r];\
+		*(byte*)(&mach->mem[a]) = *mach->hi[r];\
 		break;\
 	default:\
-		*(uint16_t*)(&mem[a]) = *quar[(r*4)+partition];\
+		*(uint16_t*)(&mach->mem[a]) = *mach->quar[(r*4)+partition];\
 		break;\
 	}\
 }
@@ -270,29 +259,29 @@ reg[r] = v;\
 	byte partition = (b&0x70) >> 4;\
 	switch(partition){\
 	case FULL:\
-		reg[SP] -= (sizeof(word)-1);\
-		*(word*)(&mem[reg[SP]]) = reg[r];\
-		reg[SP] -= 1;\
+		mach->reg[SP] -= (sizeof(word)-1);\
+		*(word*)(&mach->mem[mach->reg[SP]]) = mach->reg[r];\
+		mach->reg[SP] -= 1;\
 		break;\
 	case HALF:\
-		reg[SP] -= (sizeof(word)-1);\
-		*(word*)(&mem[reg[SP]]) = (word)(*half[r]);\
-		reg[SP] -= 1;\
+		mach->reg[SP] -= (sizeof(word)-1);\
+		*(word*)(&mach->mem[mach->reg[SP]]) = (word)(*mach->half[r]);\
+		mach->reg[SP] -= 1;\
 		break;\
 	case LO:\
-		reg[SP] -= (sizeof(word)-1);\
-		*(word*)(&mem[reg[SP]]) = (word)(*lo[r]);\
-		reg[SP] -= 1;\
+		mach->reg[SP] -= (sizeof(word)-1);\
+		*(word*)(&mach->mem[mach->reg[SP]]) = (word)(*mach->lo[r]);\
+		mach->reg[SP] -= 1;\
 		break;\
 	case HI:\
-		reg[SP] -= (sizeof(word)-1);\
-		*(word*)(&mem[reg[SP]]) = (word)(*hi[r]);\
-		reg[SP] -= 1;\
+		mach->reg[SP] -= (sizeof(word)-1);\
+		*(word*)(&mach->mem[mach->reg[SP]]) = (word)(*mach->hi[r]);\
+		mach->reg[SP] -= 1;\
 		break;\
 	default:\
-		reg[SP] -= (sizeof(word)-1);\
-		*(word*)(&mem[reg[SP]]) = (word)(*quar[(r*4)+partition]);\
-		reg[SP] -= 1;\
+		mach->reg[SP] -= (sizeof(word)-1);\
+		*(word*)(&mach->mem[mach->reg[SP]]) = (word)(*mach->quar[(r*4)+partition]);\
+		mach->reg[SP] -= 1;\
 		break;\
 	}\
 }
@@ -303,29 +292,29 @@ reg[r] = v;\
 	byte partition = (b&0x70) >> 4;\
 	switch(partition){\
 	case FULL:\
-		reg[SP] += 1;\
-		reg[r] = *(word*)(&mem[reg[SP]]);\
-		reg[SP] += sizeof(word)-1;\
+		mach->reg[SP] += 1;\
+		mach->reg[r] = *(word*)(&mach->mem[mach->reg[SP]]);\
+		mach->reg[SP] += sizeof(word)-1;\
 		break;\
 	case HALF:\
-		reg[SP] += 1;\
-		*half[r] = *(word*)(&mem[reg[SP]]);\
-		reg[SP] += sizeof(word)-1;\
+		mach->reg[SP] += 1;\
+		*mach->half[r] = *(word*)(&mach->mem[mach->reg[SP]]);\
+		mach->reg[SP] += sizeof(word)-1;\
 		break;\
 	case LO:\
-		reg[SP] += 1;\
-		*lo[r] = *(word*)(&mem[reg[SP]]);\
-		reg[SP] += sizeof(word)-1;\
+		mach->reg[SP] += 1;\
+		*mach->lo[r] = *(word*)(&mach->mem[mach->reg[SP]]);\
+		mach->reg[SP] += sizeof(word)-1;\
 		break;\
 	case HI:\
-		reg[SP] += 1;\
-		*hi[r] = *(word*)(&mem[reg[SP]]);\
-		reg[SP] += sizeof(word)-1;\
+		mach->reg[SP] += 1;\
+		*mach->hi[r] = *(word*)(&mach->mem[mach->reg[SP]]);\
+		mach->reg[SP] += sizeof(word)-1;\
 		break;\
 	default:\
-		reg[SP] += 1;\
-		*quar[(r*4)+partition] = *(word*)(&mem[reg[SP]]);\
-		reg[SP] += sizeof(word)-1;\
+		mach->reg[SP] += 1;\
+		*mach->quar[(r*4)+partition] = *(word*)(&mach->mem[mach->reg[SP]]);\
+		mach->reg[SP] += sizeof(word)-1;\
 		break;\
 	}\
 }
@@ -335,7 +324,7 @@ reg[r] = v;\
 	uint16_t right = SHORT_LITERAL;\
 	word left; ACCESS_REG(left, dst);\
 	LOAD_REG(dst, left operator right);\
-	reg[IP] += 1;
+	mach->reg[IP] += 1;
 
 #define ALU_I(operator)\
 	byte dst = NEXT;\
@@ -343,7 +332,7 @@ reg[r] = v;\
 	word left; ACCESS_REG(left, dst);\
 	word right; ACCESS_REG(right, src);\
 	LOAD_REG(dst, left operator right);\
-	reg[IP] += 1;
+	mach->reg[IP] += 1;
 
 #define ALU(operator)\
 	byte dst = NEXT;\
@@ -352,33 +341,33 @@ reg[r] = v;\
 	word left; ACCESS_REG(left, src_a);\
 	word right; ACCESS_REG(right, src_b);\
 	LOAD_REG(dst, left operator right);\
-	reg[IP] += 1;
+	mach->reg[IP] += 1;
 
 #define ALU_UI(operator)\
 	byte tar = NEXT;\
 	word val; ACCESS_REG(val, tar);\
 	LOAD_REG(tar, operator val);\
-	reg[IP] += 1;
+	mach->reg[IP] += 1;
 
 #define ALU_U(operator)\
 	byte tar = NEXT;\
 	byte src = NEXT;\
 	word val; ACCESS_REG(val, src);\
 	LOAD_REG(tar, operator val);\
-	reg[IP] += 1;
+	mach->reg[IP] += 1;
 
 #define COMPARE_FLAGS(a, b)\
 	if (a<b){\
-		reg[SR] |= CARRY; \
-		reg[SR] &= ~ZERO;\
+		mach->reg[SR] |= CARRY; \
+		mach->reg[SR] &= ~ZERO;\
 	}\
 	else if (a==b){\
-		reg[SR] |= ZERO; \
-		reg[SR] &= ~CARRY;\
+		mach->reg[SR] |= ZERO; \
+		mach->reg[SR] &= ~CARRY;\
 	}\
 	else{\
-		reg[SR] &= ~ZERO; \
-		reg[SR] &= ~CARRY;\
+		mach->reg[SR] &= ~ZERO; \
+		mach->reg[SR] &= ~CARRY;\
 	}
 
 #define BRANCH_LINK\
@@ -387,11 +376,11 @@ reg[r] = v;\
 	PUSH_REG(REG(FULL, LR));\
 	PUSH_REG(REG(FULL, CR));\
 	PUSH_REG(REG(FULL, AR));\
-	reg[FP] = reg[SP];\
+	mach->reg[FP] = mach->reg[SP];\
 	ip += 1;\
 	byte adr = NEXT;\
 	word val; ACCESS_REG(val, adr);\
-	reg[IP] += *(int64_t*)(&val);
+	mach->reg[IP] += *(int64_t*)(&val);
 
 #define BRANCH_LINK_TO\
 	PUSH_REG(REG(FULL, IP));\
@@ -399,8 +388,8 @@ reg[r] = v;\
 	PUSH_REG(REG(FULL, LR));\
 	PUSH_REG(REG(FULL, CR));\
 	PUSH_REG(REG(FULL, AR));\
-	reg[FP] = reg[SP];\
-	reg[IP] = reg[LR];
+	mach->reg[FP] = mach->reg[SP];\
+	mach->reg[IP] = mach->reg[LR];
 
 #define BRANCH_JUMP\
 	PUSH_REG(REG(FULL, IP));\
@@ -408,71 +397,71 @@ reg[r] = v;\
 	PUSH_REG(REG(FULL, LR));\
 	PUSH_REG(REG(FULL, CR));\
 	PUSH_REG(REG(FULL, AR));\
-	reg[FP] = reg[SP];\
+	mach->reg[FP] = mach->reg[SP];\
 	int16_t offset = SHORT_LITERAL;\
-	reg[IP] += offset;
+	mach->reg[IP] += offset;
 
 #define JUMP_REG\
 	ip += 1;\
 	byte adr = NEXT;\
 	word val; ACCESS_REG(val, adr);\
-	reg[IP] += *(int64_t*)(&val);
+	mach->reg[IP] += *(int64_t*)(&val);
 
 #define JUMP_REG_TO\
-	reg[IP] = reg[LR];\
+	mach->reg[IP] = mach->reg[LR];\
 
 #define JUMP\
 	int16_t offset = SHORT_LITERAL;\
-	reg[IP] += offset;
+	mach->reg[IP] += offset;
 
-void interpret(){
+void interpret(machine* const mach){
 	while (1){
-		show_machine();
+		show_machine(mach);
 		getc(stdin);
-		word ip = PROGRAM_START+(reg[IP]*INSTRUCTION_WIDTH);
-		byte op = mem[ip];
+		word ip = PROGRAM_START+(mach->reg[IP]*INSTRUCTION_WIDTH);
+		byte op = mach->mem[ip];
 		switch (op){
-		case NOP: { reg[IP] += 1; } break;
-		case LDS: { byte b = NEXT; LOAD_REG(b, SHORT_LITERAL); reg[IP] += 1; } break;
+		case NOP: { mach->reg[IP] += 1; } break;
+		case LDS: { byte b = NEXT; LOAD_REG(b, SHORT_LITERAL); mach->reg[IP] += 1; } break;
 		case LDA: {
 				byte dst = NEXT; byte adr = NEXT; byte off = NEXT;
 				word a; ACCESS_REG(a, adr);
 				word o; ACCESS_REG(o, off);
 				LOAD_REG_ADDR(dst, a+o);
-				reg[IP] += 1;
+				mach->reg[IP] += 1;
 			} break;
 		case LDI: {
 				byte dst = NEXT; byte adr = NEXT; byte off = NEXT;
 				word a; ACCESS_REG(a, adr);
 				LOAD_REG_ADDR(dst, a+off);
-				reg[IP] += 1;
+				mach->reg[IP] += 1;
 			} break;
-		case STS: { byte src = NEXT; uint16_t adr = SHORT_LITERAL; STORE_REG(adr, src); reg[IP] += 1; } break;
+		case STS: { byte src = NEXT; uint16_t adr = SHORT_LITERAL; STORE_REG(adr, src); mach->reg[IP] += 1; } break;
 		case STA: {
 				byte src = NEXT; byte adr = NEXT; byte off = NEXT;
 				word a; ACCESS_REG(a, adr);
 				word o; ACCESS_REG(o, off);
 				STORE_REG(a+o, src);
-				reg[IP] += 1;
+				mach->reg[IP] += 1;
 			} break;
 		case STB: {
 				byte src = NEXT; byte adr = NEXT; byte off = NEXT;
 				word a; ACCESS_REG(a, adr);
 				STORE_REG(a+off, src);
-				reg[IP] += 1;
+				mach->reg[IP] += 1;
 			} break;
 		case MOV: {
 				byte dst = NEXT; byte src = NEXT;
 				word s; ACCESS_REG(s, src);
 				LOAD_REG(dst, s);
-				reg[IP] += 1;
+				mach->reg[IP] += 1;
 			} break;
 		case SWP: {
 				byte a = NEXT; byte b = NEXT;
 				word s; ACCESS_REG(s, a);
 				word d; ACCESS_REG(d, b);
 				LOAD_REG(a, d); LOAD_REG(b, s);
-				reg[IP] += 1;
+				mach->reg[IP] += 1;
 			} break;
 		case ADS: { ALU_S(+); } break;
 		case SUS: { ALU_S(-); } break;
@@ -513,67 +502,67 @@ void interpret(){
 				word left; ACCESS_REG(left, a);
 				word right; ACCESS_REG(right, b);
 				COMPARE_FLAGS(left, right);
-				reg[IP] += 1;
+				mach->reg[IP] += 1;
 			} break;
 		case CMS: {
 				byte a = NEXT; uint16_t right = SHORT_LITERAL;
 				word left; ACCESS_REG(left, a);
 				COMPARE_FLAGS(left, right);
-				reg[IP] += 1;
+				mach->reg[IP] += 1;
 			} break;
 		case RET: {
 				byte tar = NEXT;
-				reg[SP] = reg[FP];
+				mach->reg[SP] = mach->reg[FP];
 				POP_REG(REG(FULL,AR));
 				POP_REG(REG(FULL,CR));
 				POP_REG(REG(FULL,LR));
 				POP_REG(REG(FULL,FP));
 				POP_REG(REG(FULL,IP));
-				reg[SP] = reg[CR];
+				mach->reg[SP] = mach->reg[CR];
 				POP_REG(REG(FULL,CR));
 				PUSH_REG(tar);
-				reg[IP] += 1;
+				mach->reg[IP] += 1;
 			} break;
 		case REI: {
-				reg[SP] = reg[FP];
+				mach->reg[SP] = mach->reg[FP];
 				POP_REG(REG(FULL,AR));
 				POP_REG(REG(FULL,CR));
 				POP_REG(REG(FULL,LR));
 				POP_REG(REG(FULL,FP));
 				POP_REG(REG(FULL,IP));
-				reg[SP] = reg[CR];
+				mach->reg[SP] = mach->reg[CR];
 				POP_REG(REG(FULL,CR));
-				reg[IP] += 1;
+				mach->reg[IP] += 1;
 			} break;
 		case RES: {
 				uint16_t tar = SHORT_LITERAL;
-				reg[SP] = reg[FP];
+				mach->reg[SP] = mach->reg[FP];
 				POP_REG(REG(FULL,AR));
 				POP_REG(REG(FULL,CR));
 				POP_REG(REG(FULL,LR));
 				POP_REG(REG(FULL,FP))
 				POP_REG(REG(FULL,IP))
-				reg[SP] = reg[CR];
+				mach->reg[SP] = mach->reg[CR];
 				POP_REG(REG(FULL,CR));
-				reg[SP] -= (sizeof(word)-1);
-				*(word*)(&mem[reg[SP]]) = tar;
-				reg[SP] -= 1;
-				reg[IP] += 1;
+				mach->reg[SP] -= (sizeof(word)-1);
+				*(word*)(&mach->mem[mach->reg[SP]]) = tar;
+				mach->reg[SP] -= 1;
+				mach->reg[IP] += 1;
 			} break;
 		case CAL: {
 				PUSH_REG(REG(FULL,CR));
-				reg[CR] = reg[SP];
-				reg[IP] += 1;
+				mach->reg[CR] = mach->reg[SP];
+				mach->reg[IP] += 1;
 			} break;
-		case PSH: { byte tar = NEXT; PUSH_REG(tar); reg[IP] += 1; } break;
+		case PSH: { byte tar = NEXT; PUSH_REG(tar); mach->reg[IP] += 1; } break;
 		case PSS: {
 				uint16_t lit = SHORT_LITERAL;
-				reg[SP] -= (sizeof(word)-1);
-				*(word*)(&mem[reg[SP]]) = lit;
-				reg[SP] -= 1;
-				reg[IP] += 1;
+				mach->reg[SP] -= (sizeof(word)-1);
+				*(word*)(&mach->mem[mach->reg[SP]]) = lit;
+				mach->reg[SP] -= 1;
+				mach->reg[IP] += 1;
 			} break;
-		case POP: { byte tar = NEXT; POP_REG(tar); reg[IP] += 1; } break;
+		case POP: { byte tar = NEXT; POP_REG(tar); mach->reg[IP] += 1; } break;
 		case BNC: {
 				byte mode = NEXT;
 				if (mode == 0) { BRANCH_LINK; }
@@ -581,119 +570,119 @@ void interpret(){
 				else { BRANCH_LINK_TO; }
 			} break;
 		case BNE: {
-				if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0)){
+				if (((mach->reg[SR] & ZERO) == 0) || ((mach->reg[SR] & CARRY) != 0)){
 					byte mode = NEXT;
 					if (mode == 0) { BRANCH_LINK; }
 					else if (mode == 1) { BRANCH_JUMP; }
 					else { BRANCH_LINK_TO; }
 				}
-				else { reg[IP] += 1; }
+				else { mach->reg[IP] += 1; }
 			} break;
 		case BEQ: {
-				if (((reg[SR] & ZERO) != 0) && ((reg[SR] & CARRY) == 0)){
+				if (((mach->reg[SR] & ZERO) != 0) && ((mach->reg[SR] & CARRY) == 0)){
 					byte mode = NEXT;
 					if (mode == 0) { BRANCH_LINK; }
 					else if (mode == 1) { BRANCH_JUMP; }
 					else { BRANCH_LINK_TO; }
 				}
-				else { reg[IP] += 1; }
+				else { mach->reg[IP] += 1; }
 			} break;
 		case BLT: {
-				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) != 0)){
+				if (((mach->reg[SR] & ZERO) == 0) && ((mach->reg[SR] & CARRY) != 0)){
 					byte mode = NEXT;
 					if (mode == 0) { BRANCH_LINK; }
 					else if (mode == 1) { BRANCH_JUMP; }
 					else { BRANCH_LINK_TO; }
 				}
-				else { reg[IP] += 1; }
+				else { mach->reg[IP] += 1; }
 			} break;
 		case BGT: {
-				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) == 0)){
+				if (((mach->reg[SR] & ZERO) == 0) && ((mach->reg[SR] & CARRY) == 0)){
 					byte mode = NEXT;
 					if (mode == 0) { BRANCH_LINK; }
 					else if (mode == 1) { BRANCH_JUMP; }
 					else { BRANCH_LINK_TO; }
 				}
-				else { reg[IP] += 1; }
+				else { mach->reg[IP] += 1; }
 			} break;
 		case BLE: {
-				if ((reg[SR] & ZERO) != (reg[SR] & CARRY)){
+				if ((mach->reg[SR] & ZERO) != (mach->reg[SR] & CARRY)){
 					byte mode = NEXT;
 					if (mode == 0) { BRANCH_LINK; }
 					else if (mode == 1) { BRANCH_JUMP; }
 					else { BRANCH_LINK_TO; }
 				}
-				else { reg[IP] += 1; }
+				else { mach->reg[IP] += 1; }
 			} break;
 		case BGE: {
-				if ((reg[SR] & CARRY) == 0){
+				if ((mach->reg[SR] & CARRY) == 0){
 					byte mode = NEXT;
 					if (mode == 0) { BRANCH_LINK; }
 					else if (mode == 1) { BRANCH_JUMP; }
 					else { BRANCH_LINK_TO; }
 				}
-				else { reg[IP] += 1; }
+				else { mach->reg[IP] += 1; }
 			} break;
 		case JMP: {
 				byte mode = NEXT;
 				if (mode == 0) { JUMP_REG; } else if (mode == 1) { JUMP; } else { JUMP_REG_TO; }
 			} break;
 		case JNE: {
-				if (((reg[SR] & ZERO) == 0) || ((reg[SR] & CARRY) != 0)){
+				if (((mach->reg[SR] & ZERO) == 0) || ((mach->reg[SR] & CARRY) != 0)){
 					byte mode = NEXT;
 					if (mode == 0) { JUMP_REG; }
 					else if (mode == 1) { JUMP; }
 					else { JUMP_REG_TO; }
 				}
-				else { reg[IP] += 1; }
+				else { mach->reg[IP] += 1; }
 			} break;
 		case JEQ: {
-				if (((reg[SR] & ZERO) != 0) && ((reg[SR] & CARRY) == 0)){
+				if (((mach->reg[SR] & ZERO) != 0) && ((mach->reg[SR] & CARRY) == 0)){
 					byte mode = NEXT;
 					if (mode == 0) { JUMP_REG; }
 					else if (mode == 1) { JUMP; }
 					else { JUMP_REG_TO; }
 				}
-				else { reg[IP] += 1; }
+				else { mach->reg[IP] += 1; }
 			} break;
 		case JLT: {
-				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) != 0)){
+				if (((mach->reg[SR] & ZERO) == 0) && ((mach->reg[SR] & CARRY) != 0)){
 					byte mode = NEXT;
 					if (mode == 0) { JUMP_REG; }
 					else if (mode == 1) { JUMP; }
 					else { JUMP_REG_TO; }
 				}
-				else { reg[IP] += 1; }
+				else { mach->reg[IP] += 1; }
 			} break;
 		case JGT: {
-				if (((reg[SR] & ZERO) == 0) && ((reg[SR] & CARRY) == 0)){
+				if (((mach->reg[SR] & ZERO) == 0) && ((mach->reg[SR] & CARRY) == 0)){
 					byte mode = NEXT;
 					if (mode == 0) { JUMP_REG; }
 					else if (mode == 1) { JUMP; }
 					else { JUMP_REG_TO; }
 				}
-				else { reg[IP] += 1; }
+				else { mach->reg[IP] += 1; }
 			} break;
 		case JLE: {
-				if ((reg[SR] & ZERO) != (reg[SR] & CARRY)){
+				if ((mach->reg[SR] & ZERO) != (mach->reg[SR] & CARRY)){
 					byte mode = NEXT;
 					if (mode == 0) { JUMP_REG; }
 					else if (mode == 1) { JUMP; }
 					else { JUMP_REG_TO; }
 				}
-				else { reg[IP] += 1; }
+				else { mach->reg[IP] += 1; }
 			} break;
 		case JGE: {
-				if ((reg[SR] & CARRY) == 0){
+				if ((mach->reg[SR] & CARRY) == 0){
 					byte mode = NEXT;
 					if (mode == 0) { JUMP_REG; }
 					else if (mode == 1) { JUMP; }
 					else { JUMP_REG_TO; }
 				}
-				else { reg[IP] += 1; }
+				else { mach->reg[IP] += 1; }
 			} break;
-		case INT: { reg[IP] += 1; } break;
-		case INR: { reg[IP] += 1; } break;
+		case INT: { mach->reg[IP] += 1; } break;
+		case INR: { mach->reg[IP] += 1; } break;
 		default:
 			printf("Unknown upcode\n");
 			return;
@@ -2225,28 +2214,29 @@ void compile_file(char* infile, char* outfile){
 	pool_dealloc(&code);
 }
 
-void setup_registers(){
+void setup_registers(machine* const mach){
 	for (uint8_t r = 0;r<REGISTER_COUNT;++r){
 		for (uint8_t i = 0;i<4;++i){
-			quar[(r*4)+i] = (uint16_t*)(&reg[r])+(3-i);
+			mach->quar[(r*4)+i] = (uint16_t*)(&mach->reg[r])+(3-i);
 		}
-		half[r] = (uint32_t*)(&reg[r]);
-		lo[r] = (byte*)(&reg[r]);
-		hi[r] = (byte*)(&reg[r])+1;
+		mach->half[r] = (uint32_t*)(&mach->reg[r]);
+		mach->lo[r] = (byte*)(&mach->reg[r]);
+		mach->hi[r] = (byte*)(&mach->reg[r])+1;
 	}
-	reg[SP] = MEMORY_SIZE-1;
-	reg[FP] = MEMORY_SIZE-1;
-	reg[CR] = MEMORY_SIZE-1;
-	reg[IP] = 0;
+	mach->reg[SP] = MEMORY_SIZE-1;
+	mach->reg[FP] = MEMORY_SIZE-1;
+	mach->reg[CR] = MEMORY_SIZE-1;
+	mach->reg[IP] = 0;
 }
 
-void flash_rom(byte* buffer, uint64_t size){
+void flash_rom(machine* const mach, byte* buffer, uint64_t size){
 	for (uint64_t i = 0;i<size;++i){
-		mem[PROGRAM_START+i] = buffer[i];
+		mach->mem[PROGRAM_START+i] = buffer[i];
 	}
 }
 
 void demo(){
+	machine mach;
 	byte cc[] = {
 		CAL_,
 			LDS_(REG(L16, R3), 0xDEAD),
@@ -2273,9 +2263,9 @@ void demo(){
 		LDS_(REG(FULL, R2), 0xDEAD),
 		NOP_, NOP_, NOP_, NOP_
 	};
-	setup_registers();
-	flash_rom(cc, 128);
-	interpret();
+	setup_registers(&mach);
+	flash_rom(&mach, cc, 128);
+	interpret(&mach);
 	return;
 }
 
@@ -2317,9 +2307,10 @@ void run_rom(char* filename){
 		free(buffer);
 		return;
 	}
-	setup_registers();
-	flash_rom(buffer, size);
-	interpret();
+	machine mach;
+	setup_registers(&mach);
+	flash_rom(&mach, buffer, size);
+	interpret(&mach);
 	free(buffer);
 }
 

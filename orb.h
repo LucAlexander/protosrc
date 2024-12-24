@@ -14,6 +14,10 @@
 #define ARENA_SIZE READ_BUFFER_SIZE+AUX_SIZE+ERROR_BUFFER
 #define TOKEN_MAX 64
 
+#define INSTRUCTION_WIDTH 0x4
+#define PROGRAM_START 0x200
+#define MEMORY_SIZE 0x100000
+
 typedef uint64_t word;
 typedef uint8_t byte;
 
@@ -44,6 +48,15 @@ typedef enum {
 	R0, R1, R2, R3, R4, R5, R6, R7, R8,
 	REGISTER_COUNT
 } REGISTER;
+
+typedef struct machine {
+	word reg[REGISTER_COUNT];
+	uint16_t* quar[REGISTER_COUNT*4];
+	uint32_t* half[REGISTER_COUNT];
+	byte* lo[REGISTER_COUNT];
+	byte* hi[REGISTER_COUNT];
+	byte mem[MEMORY_SIZE];
+} machine;
 
 MAP_DEF(REGISTER)
 
@@ -219,10 +232,10 @@ typedef struct {
 	char* err;
 } compiler;
 
-void show_registers();
-void show_mem();
-void show_machine();
-void interpret();
+void show_registers(machine* const mach);
+void show_mem(machine* const mach);
+void show_machine(machine* const mach);
+void interpret(machine* const mach);
 void setup_opcode_map(OPCODE_map* opmap);
 void setup_register_map(REGISTER_map* regmap);
 void setup_partition_map(REG_PARTITION_map* partmap);
@@ -245,8 +258,8 @@ byte show_block(compiler* const comp, code_tree* const code, word depth);
 void show_tokens(compiler* const comp);
 byte compile_cstr(compiler* const comp);
 void compile_file(char* infile, char* outfile);
-void setup_registers();
-void flash_rom(byte* buffer, uint64_t size);
+void setup_registers(machine* const mach);
+void flash_rom(machine* const mach, byte* buffer, uint64_t size);
 void demo();
 void show_binary(char* filename);
 void run_rom(char* filename);
