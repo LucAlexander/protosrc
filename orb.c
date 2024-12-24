@@ -1813,9 +1813,14 @@ code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* 
 	while (push != NULL){
 		switch (push->type){
 		case BYTE_DATA:
-			word rounded_out = push->data.bytes.size+(8-(push->data.bytes.size % 8));
-			pool_request(comp->mem, rounded_out);
-			for (word i = 0;i<rounded_out;){
+			word under_round = 0;
+			word remainder = push->data.bytes;
+			if (remainder > 7){
+				remainder %= 8;
+				under_round = push->data.bytes.size-remainder;
+			}
+			pool_request(comp->mem, 5+(under_round*4*5));
+			for (word i = 0;i<under_round;){
 				basic_block->code.instructions[instruction_index++] = LDS;
 				basic_block->code.instructions[instruction_index++] = REG(L16, AR);
 				basic_block->code.instructions[instruction_index++] = push->data.bytes.raw[i++];
@@ -1838,6 +1843,32 @@ code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* 
 				basic_block->code.instructions[instruction_index++] = 0;
 				basic_block->code.instruction_count += 5;
 			}
+			byte line[8] = {0};
+			for (word i = 8-remainder;i<8;++i){
+				line[i] = push->data.bytes.raw[under_round+i];
+			}
+			word index = 0;
+			basic_block->code.instructions[instruction_index++] = LDS;
+			basic_block->code.instructions[instruction_index++] = REG(L16, AR);
+			basic_block->code.instructions[instruction_index++] = line[index++];
+			basic_block->code.instructions[instruction_index++] = line[index++];
+			basic_block->code.instructions[instruction_index++] = LDS;
+			basic_block->code.instructions[instruction_index++] = REG(LM16, AR);
+			basic_block->code.instructions[instruction_index++] = line[index++];
+			basic_block->code.instructions[instruction_index++] = line[index++];
+			basic_block->code.instructions[instruction_index++] = LDS;
+			basic_block->code.instructions[instruction_index++] = REG(RM16, AR);
+			basic_block->code.instructions[instruction_index++] = line[index++];
+			basic_block->code.instructions[instruction_index++] = line[index++];
+			basic_block->code.instructions[instruction_index++] = LDS;
+			basic_block->code.instructions[instruction_index++] = REG(R16, AR);
+			basic_block->code.instructions[instruction_index++] = line[index++];
+			basic_block->code.instructions[instruction_index++] = line[index++];
+			basic_block->code.instructions[instruction_index++] = PSH;
+			basic_block->code.instructions[instruction_index++] = REG(FULL, AR);
+			basic_block->code.instructions[instruction_index++] = 0;
+			basic_block->code.instructions[instruction_index++] = 0;
+			basic_block->code.instruction_count += 5;
 			break;
 		case NEST_DATA:
 			basic_block = pregen_push(comp, basic_block, push->data.push);
@@ -1848,16 +1879,54 @@ code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* 
 			code_tree* code = push->data.code;
 			while (code != NULL){
 				word n = code->code.instruction_count * 4;
-				pool_request(comp->mem, n);
-				for (word i = n;i>0;i-=4){
+				byte hi = 0;
+				for (word i = n;i>0;){
 					word m = i-1;
-					for (word k = m-4;k<m;k+=2){
-						basic_block->code.instructions[instruction_index++] = PSS;
-						basic_block->code.instructions[instruction_index++] = code->code.instructions[k];
-						basic_block->code.instructions[instruction_index++] = code->code.instructions[k+1];
+					if (hi == 1){
+						pool_request(comp->mem, 4*3);
+						basic_block->code.instructions[instruction_index++] = LDS;
+						basic_block->code.instructions[instruction_index++] = REG(LM16, AR);
+						basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
+						basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
+						basic_block->code.instructions[instruction_index++] = LDS;
+						basic_block->code.instructions[instruction_index++] = REG(L16, AR);
+						basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
+						basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
+						basic_block->code.instructions[instruction_index++] = PSH;
+						basic_block->code.instructions[instruction_index++] = REG(FULL, AR);
 						basic_block->code.instructions[instruction_index++] = 0;
-						basic_block->code.instruction_count += 1;
+						basic_block->code.instructions[instruction_index++] = 0;
+						basic_block->code.instruction_count += 3;
+						hi = 0;
+						continue;
 					}
+					pool_request(comp->mem, 4*2);
+					basic_block->code.instructions[instruction_index++] = LDS;
+					basic_block->code.instructions[instruction_index++] = REG(R16, AR);
+					basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
+					basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
+					basic_block->code.instructions[instruction_index++] = LDS;
+					basic_block->code.instructions[instruction_index++] = REG(RM16, AR);
+					basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
+					basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
+					basic_block->code.instruction_count += 2;
+					hi = 1;
+				}
+				if (hi == 1){
+					pool_request(comp->mem, 4*3);
+					basic_block->code.instructions[instruction_index++] = LDS;
+					basic_block->code.instructions[instruction_index++] = REG(LM16, AR);
+					basic_block->code.instructions[instruction_index++] = 0;
+					basic_block->code.instructions[instruction_index++] = 0;
+					basic_block->code.instructions[instruction_index++] = LDS;
+					basic_block->code.instructions[instruction_index++] = REG(L16, AR);
+					basic_block->code.instructions[instruction_index++] = 0;
+					basic_block->code.instructions[instruction_index++] = 0;
+					basic_block->code.instructions[instruction_index++] = PSH;
+					basic_block->code.instructions[instruction_index++] = REG(FULL, AR);
+					basic_block->code.instructions[instruction_index++] = 0;
+					basic_block->code.instructions[instruction_index++] = 0;
+					basic_block->code.instruction_count += 3;
 				}
 				code = code->next;
 			}
@@ -1867,7 +1936,9 @@ code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* 
 	}
 }
 
+//TODO vmcode in a different memory space
 //TODO all specific purpose registers need to be preserved
+//TODO allow 4 byte and 8 byte tokens for pushes and arguments
 code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* call){
 	word instruction_index = basic_block->code.instruction_count*4;
 	basic_block->code.instructions[instruction_index++] = CAL;
