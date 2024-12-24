@@ -11,7 +11,7 @@
 #define WRITE_BUFFER_SIZE 0x10000000
 #define AUX_SIZE 0x100000
 #define ERROR_BUFFER 0x100
-#define ARENA_SIZE READ_BUFFER_SIZE+WRITE_BUFFER_SIZE+AUX_SIZE+ERROR_BUFFER
+#define ARENA_SIZE READ_BUFFER_SIZE+AUX_SIZE+ERROR_BUFFER
 #define TOKEN_MAX 64
 
 typedef uint64_t word;
@@ -28,7 +28,6 @@ typedef enum {
 	INV, COM, INI, COI,
 	CMP, CMS,
 	RET, REI, RES,
-	ESC,
 	CAL,
 	PSH, PSS,
 	POP,
@@ -216,6 +215,7 @@ typedef struct {
 	code_tree* ir;
 	bsms labels;
 	pool* mem;
+	pool* code;
 	char* err;
 } compiler;
 
@@ -252,5 +252,8 @@ void show_binary(char* filename);
 void run_rom(char* filename);
 byte check_label_bucket(compiler* const comp, block_scope_map_bucket* bucket);
 byte remaining_labels(compiler* const comp, block_scope_map* const block);
+code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* push);
+code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* call);
+byte pregenerate(compiler* const comp, code_tree* basic_block);
 
 #endif

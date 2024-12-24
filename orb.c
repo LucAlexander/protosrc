@@ -60,7 +60,6 @@ MAP_IMPL(block_scope)
 #define RET_(tar)              RET, tar,  0, 0
 #define REI_                   REI, 0,    0, 0
 #define RES_(tar)              RES, SHORT(tar), 0
-#define ESC_                   ESC, 0,    0, 0
 #define CAL_                   CAL, 0,    0, 0
 #define PSH_(tar)              PSH, tar,  0, 0
 #define PSS_(tar)              PSS, SHORT(tar), 0
@@ -385,6 +384,9 @@ reg[r] = v;\
 #define BRANCH_LINK\
 	PUSH_REG(REG(FULL, IP));\
 	PUSH_REG(REG(FULL, FP));\
+	PUSH_REG(REG(FULL, LR));\
+	PUSH_REG(REG(FULL, CR));\
+	PUSH_REG(REG(FULL, AR));\
 	reg[FP] = reg[SP];\
 	ip += 1;\
 	byte adr = NEXT;\
@@ -394,12 +396,18 @@ reg[r] = v;\
 #define BRANCH_LINK_TO\
 	PUSH_REG(REG(FULL, IP));\
 	PUSH_REG(REG(FULL, FP));\
+	PUSH_REG(REG(FULL, LR));\
+	PUSH_REG(REG(FULL, CR));\
+	PUSH_REG(REG(FULL, AR));\
 	reg[FP] = reg[SP];\
 	reg[IP] = reg[LR];
 
 #define BRANCH_JUMP\
 	PUSH_REG(REG(FULL, IP));\
 	PUSH_REG(REG(FULL, FP));\
+	PUSH_REG(REG(FULL, LR));\
+	PUSH_REG(REG(FULL, CR));\
+	PUSH_REG(REG(FULL, AR));\
 	reg[FP] = reg[SP];\
 	int16_t offset = SHORT_LITERAL;\
 	reg[IP] += offset;
@@ -516,6 +524,9 @@ void interpret(){
 		case RET: {
 				byte tar = NEXT;
 				reg[SP] = reg[FP];
+				POP_REG(REG(FULL,AR));
+				POP_REG(REG(FULL,CR));
+				POP_REG(REG(FULL,LR));
 				POP_REG(REG(FULL,FP));
 				POP_REG(REG(FULL,IP));
 				reg[SP] = reg[CR];
@@ -525,6 +536,9 @@ void interpret(){
 			} break;
 		case REI: {
 				reg[SP] = reg[FP];
+				POP_REG(REG(FULL,AR));
+				POP_REG(REG(FULL,CR));
+				POP_REG(REG(FULL,LR));
 				POP_REG(REG(FULL,FP));
 				POP_REG(REG(FULL,IP));
 				reg[SP] = reg[CR];
@@ -534,6 +548,9 @@ void interpret(){
 		case RES: {
 				uint16_t tar = SHORT_LITERAL;
 				reg[SP] = reg[FP];
+				POP_REG(REG(FULL,AR));
+				POP_REG(REG(FULL,CR));
+				POP_REG(REG(FULL,LR));
 				POP_REG(REG(FULL,FP))
 				POP_REG(REG(FULL,IP))
 				reg[SP] = reg[CR];
@@ -541,13 +558,6 @@ void interpret(){
 				reg[SP] -= (sizeof(word)-1);
 				*(word*)(&mem[reg[SP]]) = tar;
 				reg[SP] -= 1;
-				reg[IP] += 1;
-			} break;
-		case ESC: {
-				reg[SP] = reg[FP];
-				POP_REG(REG(FULL,FP))
-				reg[SP] = reg[CR];
-				POP_REG(REG(FULL,CR));
 				reg[IP] += 1;
 			} break;
 		case CAL: {
@@ -755,7 +765,6 @@ void setup_opcode_map(OPCODE_map* opmap){
 	OPCODE_map_insert(opmap, "RET", ops++);
 	OPCODE_map_insert(opmap, "REI", ops++);
 	OPCODE_map_insert(opmap, "RES", ops++);
-	OPCODE_map_insert(opmap, "ESC", ops++);
 	OPCODE_map_insert(opmap, "CAL", ops++);
 	OPCODE_map_insert(opmap, "PSH", ops++);
 	OPCODE_map_insert(opmap, "PSS", ops++);
@@ -1237,7 +1246,7 @@ word parse_instruction_block(compiler* const comp, bsms* const sublabels, word t
 	token t = comp->tokens[token_index];
 	ASSERT_LOCAL(t.type == OPCODE_TOKEN, PARSERR " Expected opcode in parse instruction start" PARSERRFIX, t.text);
 	code->type = INSTRUCTION_BLOCK;
-	code->code.instructions = pool_request(comp->mem, 4*BLOCK_START_SIZE);
+	code->code.instructions = pool_request(comp->code, 4*BLOCK_START_SIZE);
 	code->code.instruction_count = 0;
 	word instruction_capacity = 4*BLOCK_START_SIZE;
 	word instruction_index = 0;
@@ -1281,7 +1290,7 @@ word parse_instruction_block(compiler* const comp, bsms* const sublabels, word t
 				}
 				code->type = triggered;
 				code->code.instruction_count = 1;
-				code->code.instructions = pool_request(comp->mem, 4);
+				code->code.instructions = pool_request(comp->code, 4);
 				code->code.instructions[0] = opc;
 				code->code.instructions[1] = 0;//TODO mode?
 				code->code.instructions[2] = 0;
@@ -1364,7 +1373,7 @@ word parse_instruction_block(compiler* const comp, bsms* const sublabels, word t
 				code->code.instructions[instruction_index+2] = 0;
 				code->code.instructions[instruction_index+3] = 0;
 				break;
-			case NOP: case REI: case ESC: case CAL:
+			case NOP: case REI: case CAL:
 				code->code.instructions[instruction_index] = t.data.opcode;
 				code->code.instructions[instruction_index+1] = 0;
 				code->code.instructions[instruction_index+2] = 0;
@@ -1377,7 +1386,7 @@ word parse_instruction_block(compiler* const comp, bsms* const sublabels, word t
 		instruction_index += 4;
 		code->code.instruction_count += 1;
 		if (instruction_index >= instruction_capacity){
-			pool_request(comp->mem, 4*code->code.instruction_count);
+			pool_request(comp->code, 4*code->code.instruction_count);
 			instruction_capacity *= 2;
 		}
 	}
@@ -1814,12 +1823,12 @@ code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* 
 		switch (push->type){
 		case BYTE_DATA:
 			word under_round = 0;
-			word remainder = push->data.bytes;
+			word remainder = push->data.bytes.size;
 			if (remainder > 7){
 				remainder %= 8;
 				under_round = push->data.bytes.size-remainder;
 			}
-			pool_request(comp->mem, 5+(under_round*4*5));
+			pool_request(comp->code, 5+(under_round*4*5));
 			for (word i = 0;i<under_round;){
 				basic_block->code.instructions[instruction_index++] = LDS;
 				basic_block->code.instructions[instruction_index++] = REG(L16, AR);
@@ -1871,19 +1880,18 @@ code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* 
 			basic_block->code.instruction_count += 5;
 			break;
 		case NEST_DATA:
-			basic_block = pregen_push(comp, basic_block, push->data.push);
+			basic_block = pregen_push(comp, basic_block, push->data.nest);
 			instruction_index = basic_block->code.instruction_count*4;
 			break;
 		case CODE_DATA:
-			pregenerate(comp, push->data.code);//TODO these need to be pregenerated first, otherwise the arena overlaps
+			pregenerate(comp, push->data.code);
 			code_tree* code = push->data.code;
 			while (code != NULL){
 				word n = code->code.instruction_count * 4;
 				byte hi = 0;
 				for (word i = n;i>0;){
-					word m = i-1;
 					if (hi == 1){
-						pool_request(comp->mem, 4*3);
+						pool_request(comp->code, 4*3);
 						basic_block->code.instructions[instruction_index++] = LDS;
 						basic_block->code.instructions[instruction_index++] = REG(LM16, AR);
 						basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
@@ -1900,7 +1908,7 @@ code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* 
 						hi = 0;
 						continue;
 					}
-					pool_request(comp->mem, 4*2);
+					pool_request(comp->code, 4*2);
 					basic_block->code.instructions[instruction_index++] = LDS;
 					basic_block->code.instructions[instruction_index++] = REG(R16, AR);
 					basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
@@ -1913,7 +1921,7 @@ code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* 
 					hi = 1;
 				}
 				if (hi == 1){
-					pool_request(comp->mem, 4*3);
+					pool_request(comp->code, 4*3);
 					basic_block->code.instructions[instruction_index++] = LDS;
 					basic_block->code.instructions[instruction_index++] = REG(LM16, AR);
 					basic_block->code.instructions[instruction_index++] = 0;
@@ -1934,10 +1942,9 @@ code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* 
 		}
 		push = push->next;
 	}
+	return basic_block;
 }
 
-//TODO vmcode in a different memory space
-//TODO all specific purpose registers need to be preserved
 //TODO allow 4 byte and 8 byte tokens for pushes and arguments
 code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* call){
 	word instruction_index = basic_block->code.instruction_count*4;
@@ -1951,7 +1958,7 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 	if (function->type == CALL_ARG){
 		basic_block = pregen_call(comp, basic_block, function->data.call);
 		instruction_index = basic_block->code.instruction_count * 4;
-		pool_request(comp->mem, 4);
+		pool_request(comp->code, 4);
 		basic_block->code.instructions[instruction_index++] = POP;
 		basic_block->code.instructions[instruction_index++] = REG(FULL, LR);
 		basic_block->code.instructions[instruction_index++] = 0;
@@ -1962,7 +1969,7 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 	else if (function->type == PUSH_ARG){
 		basic_block = pregen_push(comp, basic_block, call->data.push);
 		instruction_index = basic_block->code.instruction_count * 4;
-		pool_request(comp->mem, 4);
+		pool_request(comp->code, 4);
 		basic_block->code.instructions[instruction_index++] = POP;
 		basic_block->code.instructions[instruction_index++] = REG(FULL, LR);
 		basic_block->code.instructions[instruction_index++] = 0;
@@ -1973,17 +1980,16 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 	while (call != NULL){
 		switch (call->type){
 		case CALL_ARG:
-			pool_request(comp->mem, 4);
+			pool_request(comp->code, 4);
 			basic_block = pregen_call(comp, basic_block, call->data.call);
 			instruction_index = basic_block->code.instruction_count * 4;
 			break;
 		case PUSH_ARG:
-			//TODO in case something needs to be requested from the pool here
 			basic_block = pregen_push(comp, basic_block, call->data.push);
 			instruction_index = basic_block->code.instruction_count * 4;
 			break;
 		case REG_ARG:
-			pool_request(comp->mem, 4);
+			pool_request(comp->code, 4);
 			basic_block->code.instructions[instruction_index++] = PSH;
 			basic_block->code.instructions[instruction_index++] = call->data.reg;
 			basic_block->code.instructions[instruction_index++] = 0;
@@ -1992,7 +1998,7 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 			break;
 		case LABEL_ARG:
 		case SUBLABEL_ARG:
-			pool_request(comp->mem, 4*5);
+			pool_request(comp->code, 4*5);
 			basic_block->code.instructions[instruction_index++] = LDS; // TODO note this needs to be tracked and replaced
 			basic_block->code.instructions[instruction_index++] = REG(L16, AR);
 			basic_block->code.instructions[instruction_index++] = 0xDE;
@@ -2016,7 +2022,7 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 			basic_block->code.instruction_count += 5;
 			break;
 		case NUMERIC_ARG:
-			pool_request(comp->mem, 4);
+			pool_request(comp->code, 4);
 			basic_block->code.instructions[instruction_index++] = PSS;
 			basic_block->code.instructions[instruction_index++] = (call->data.number & 0xFF00) >> 8;
 			basic_block->code.instructions[instruction_index++] = (call->data.number & 0xFF);
@@ -2033,8 +2039,8 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 	new_block->dest_block = basic_block->dest_block;
 	new_block->next = basic_block->next;
 	basic_block->next = new_block;
-	new_block->code.instructions = pool_request(comp->mem, 4);
-	new_block->instruction_count = 1;
+	new_block->code.instructions = pool_request(comp->code, 4);
+	new_block->code.instruction_count = 1;
 	instruction_index = 0;
 	if (function == NULL){
 		new_block->code.instructions[instruction_index++] = BNC;
@@ -2071,6 +2077,8 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 		new_block->code.instructions[instruction_index++] = (function->data.number & 0xFF00) >> 8;
 		new_block->code.instructions[instruction_index++] = (function->data.number & 0xFF);
 		return new_block;
+	case CALL_ARG:
+	case PUSH_ARG:
 	}
 	return new_block;
 }
@@ -2078,15 +2086,18 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 byte pregenerate(compiler* const comp, code_tree* basic_block){
 	while (basic_block != NULL){
 		if (basic_block->type == PUSH_BLOCK){
-			pregen_push(comp, basic_block, basic_block->data.push, &basic_block->code);
+			basic_block->code.instructions = pool_request(comp->code, 4);
+			basic_block->code.instruction_count = 0;
+			pregen_push(comp, basic_block, basic_block->data.push);
 		}
 		else if (basic_block->type == CALL_BLOCK){
-			basic_block->code.instructions = pool_request(comp->mem, 4);
+			basic_block->code.instructions = pool_request(comp->code, 4);
 			basic_block->code.instruction_count = 0;
 			pregen_call(comp, basic_block, basic_block->data.call);
 		}
 		basic_block = basic_block->next;
 	}
+	return 0;
 }
 
 byte compile_cstr(compiler* const comp){
@@ -2142,6 +2153,7 @@ void compile_file(char* infile, char* outfile){
 	setup_opcode_map(&opmap);
 	setup_register_map(&regmap);
 	setup_partition_map(&partmap);
+	pool code = pool_alloc(WRITE_BUFFER_SIZE, POOL_STATIC);
 	compiler comp = {
 		.str = str,
 		.buf = buf,
@@ -2149,6 +2161,7 @@ void compile_file(char* infile, char* outfile){
 		.regmap = regmap,
 		.partmap = partmap,
 		.mem = &mem,
+		.code = &code,
 		.err = pool_request(&mem, ERROR_BUFFER)
 	};
 	*comp.err = 0;
@@ -2158,17 +2171,20 @@ void compile_file(char* infile, char* outfile){
 		fprintf(stderr, comp.err);
 		fprintf(stderr, "\033[0m\n");
 		pool_dealloc(&mem);
+		pool_dealloc(&code);
 		return;
 	}
 	fd = fopen(outfile, "w");
 	if (fd == NULL){
 		fprintf(stderr, "Unable to open file '%s' for writing\n", outfile);
 		pool_dealloc(&mem);
+		pool_dealloc(&code);
 		return;
 	}
 	fwrite(comp.buf.text, 1, comp.buf.i, fd);
 	fclose(fd);
 	pool_dealloc(&mem);
+	pool_dealloc(&code);
 }
 
 void setup_registers(){
