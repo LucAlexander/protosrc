@@ -1731,6 +1731,9 @@ byte show_block(compiler* const comp, code_tree* code, word depth){
 			for (byte i = 0;i<4;++i){
 				printf("%02x ", code->code.instructions[i]);
 			}
+			if (code->dest.text == NULL){
+				break;
+			}
 			save = code->dest.text[code->dest.size];
 			code->dest.text[code->dest.size] = '\0';
 			printf("-> %s\n", code->dest.text);
@@ -1741,6 +1744,9 @@ byte show_block(compiler* const comp, code_tree* code, word depth){
 			for (byte i = 0;i<4;++i){
 				printf("%02x ", code->code.instructions[i]);
 			}
+			if (code->dest.text == NULL){
+				break;
+			}
 			save = code->dest.text[code->dest.size];
 			code->dest.text[code->dest.size] = '\0';
 			printf("-> .%s\n", code->dest.text);
@@ -1750,11 +1756,37 @@ byte show_block(compiler* const comp, code_tree* code, word depth){
 			INDENT_SHOW(depth) printf("CALL:\n");
 			show_call(comp, code->data.call, depth+1);
 			ASSERT_ERR(0);
+			if (code->code.instructions == NULL){
+				break;
+			}
+			INDENT_SHOW(depth) printf("PRE-GEN INSTRUCTIONS:\n");
+			for (word i = 0;i<code->code.instruction_count;++i){
+				word inst = i*4;
+				word n = inst+4;
+				INDENT_SHOW(depth);
+				for (;inst<n;++inst){
+					printf("%02x ", code->code.instructions[inst]);
+				}
+				printf("\n");
+			}
 			break;
 		case PUSH_BLOCK:
 			INDENT_SHOW(depth) printf("PUSH:\n");
 			show_data(comp, code->data.push, depth+1);
 			ASSERT_ERR(0);
+			if (code->code.instructions == NULL){
+				break;
+			}
+			INDENT_SHOW(depth) printf("PRE-GEN INSTRUCTIONS:\n");
+			for (word i = 0;i<code->code.instruction_count;++i){
+				word inst = i*4;
+				word n = inst+4;
+				INDENT_SHOW(depth);
+				for (;inst<n;++inst){
+					printf("%02x ", code->code.instructions[inst]);
+				}
+				printf("\n");
+			}
 			break;
 		}
 		code = code->next;
@@ -1945,7 +1977,6 @@ code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* 
 	return basic_block;
 }
 
-//TODO allow 4 byte and 8 byte tokens for pushes and arguments
 code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* call){
 	word instruction_index = basic_block->code.instruction_count*4;
 	basic_block->code.instructions[instruction_index++] = CAL;
@@ -2100,18 +2131,25 @@ byte pregenerate(compiler* const comp, code_tree* basic_block){
 	return 0;
 }
 
+//TODO allow 4 byte and 8 byte tokens for pushes and arguments
 byte compile_cstr(compiler* const comp){
 	lex_cstr(comp);
 	ASSERT_ERR(0);
 #ifdef ORB_DEBUG
 	show_tokens(comp);
+	printf("\033[1;42mPARSING:\033[0m");
 #endif
 	parse_tokens(comp);
 	ASSERT_ERR(0);
 #ifdef ORB_DEBUG
 	show_block(comp, comp->ir, 0);
+	printf("\033[1;42mPRE-GENERATING:\033[0m");
 #endif
 	pregenerate(comp, comp->ir);
+#ifdef ORB_DEBUG
+	show_block(comp, comp->ir, 0);
+	printf("\033[1;42mDONE\033[0m\n");
+#endif
 	return 0;
 }
 
