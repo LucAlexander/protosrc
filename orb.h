@@ -5,6 +5,8 @@
 #include "string.h"
 #include "hashmap.h"
 
+//#define ORB_DEBUG
+
 #define READ_BUFFER_SIZE 0x10000000
 #define WRITE_BUFFER_SIZE 0x10000000
 #define AUX_SIZE 0x100000
@@ -39,8 +41,8 @@ typedef enum {
 MAP_DEF(OPCODE)
 
 typedef enum {
-	IP, SP, FP, SR, LR, CR,
-	R0, R1, R2, R3, R4, R5, R6, R7, R8, R9,
+	IP, SP, FP, SR, LR, CR, AR,
+	R0, R1, R2, R3, R4, R5, R6, R7, R8,
 	REGISTER_COUNT
 } REGISTER;
 
@@ -120,7 +122,6 @@ typedef struct data_tree {
 		data_tree* nest;
 		code_tree* code;
 	} data;
-	vm_code code;
 	data_tree* next;
 	enum {
 		BYTE_DATA,
@@ -140,7 +141,6 @@ typedef struct call_tree {
 		} labeling;
 		int64_t number;
 	} data;
-	vm_code code;
 	call_tree* next;
 	enum {
 		CALL_ARG,

@@ -114,7 +114,8 @@ void show_registers(){
 	SHOW_REG(FP);
 	SHOW_REG(SR);
 	SHOW_REG(LR);
-	printf("\n");
+	SHOW_REG(AR);
+printf("\n");
 	SHOW_REG(R0);
 	SHOW_REG(R1);
 	SHOW_REG(R2);
@@ -124,7 +125,6 @@ void show_registers(){
 	SHOW_REG(R6);
 	SHOW_REG(R7);
 	SHOW_REG(R8);
-	SHOW_REG(R9);
 	printf("\n");
 }
 
@@ -179,7 +179,7 @@ void show_machine(){
 	byte partition = (b&0x70) >> 4;\
 	switch (partition){\
 	case FULL:\
-		reg[r] = v;\
+reg[r] = v;\
 		break;\
 	case HALF:\
 		*half[r] = v;\
@@ -789,6 +789,7 @@ void setup_register_map(REGISTER_map* regmap){
 	REGISTER_map_insert(regmap, "SR", regs++);
 	REGISTER_map_insert(regmap, "LR", regs++);
 	REGISTER_map_insert(regmap, "CR", regs++);
+	REGISTER_map_insert(regmap, "AR", regs++);
 	REGISTER_map_insert(regmap, "rA", regs++);
 	REGISTER_map_insert(regmap, "rB", regs++);
 	REGISTER_map_insert(regmap, "rC", regs++);
@@ -798,7 +799,6 @@ void setup_register_map(REGISTER_map* regmap){
 	REGISTER_map_insert(regmap, "rG", regs++);
 	REGISTER_map_insert(regmap, "rH", regs++);
 	REGISTER_map_insert(regmap, "rI", regs++);
-	REGISTER_map_insert(regmap, "rJ", regs++);
 }
 
 void setup_partition_map(REG_PARTITION_map* partmap){
@@ -1767,16 +1767,16 @@ void show_tokens(compiler* const comp){
 			printf("PARTITION %u ", comp->tokens[i].data.part);
 			break;
 		case OPEN_CALL_TOKEN:
-			printf("OPEN_CALL");
+			printf("OPEN CALL ");
 			break;
 		case CLOSE_CALL_TOKEN:
-			printf("CLOSE_CALL ");
+			printf("CLOSE CALL ");
 			break;
 		case OPEN_PUSH_TOKEN:
-			printf("OPEN_PUSH ");
+			printf("OPEN PUSH ");
 			break;
 		case CLOSE_PUSH_TOKEN:
-			printf("CLOSE_PUSH ");
+			printf("CLOSE PUSH ");
 			break;
 		case SUBLABEL_TOKEN:
 			printf("SUBLABEL ");
@@ -1801,20 +1801,235 @@ void show_tokens(compiler* const comp){
 		comp->tokens[i].text[comp->tokens[i].size] = '\0';
 		printf("'%s' ] ", comp->tokens[i].text);
 		comp->tokens[i].text[comp->tokens[i].size] = save;
-		if ((i+1) % 8 == 0){
+		if ((i+1) % 4 == 0){
 			printf("\n");
 		}
 	}
 	printf("\n");
 }
 
+code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* push){
+	word instruction_index = basic_block->code.instruction_count*4;
+	while (push != NULL){
+		switch (push->type){
+		case BYTE_DATA:
+			word rounded_out = push->data.bytes.size+(8-(push->data.bytes.size % 8));
+			pool_request(comp->mem, rounded_out);
+			for (word i = 0;i<rounded_out;){
+				basic_block->code.instructions[instruction_index++] = LDS;
+				basic_block->code.instructions[instruction_index++] = REG(L16, AR);
+				basic_block->code.instructions[instruction_index++] = push->data.bytes.raw[i++];
+				basic_block->code.instructions[instruction_index++] = push->data.bytes.raw[i++];
+				basic_block->code.instructions[instruction_index++] = LDS;
+				basic_block->code.instructions[instruction_index++] = REG(LM16, AR);
+				basic_block->code.instructions[instruction_index++] = push->data.bytes.raw[i++];
+				basic_block->code.instructions[instruction_index++] = push->data.bytes.raw[i++];
+				basic_block->code.instructions[instruction_index++] = LDS;
+				basic_block->code.instructions[instruction_index++] = REG(RM16, AR);
+				basic_block->code.instructions[instruction_index++] = push->data.bytes.raw[i++];
+				basic_block->code.instructions[instruction_index++] = push->data.bytes.raw[i++];
+				basic_block->code.instructions[instruction_index++] = LDS;
+				basic_block->code.instructions[instruction_index++] = REG(R16, AR);
+				basic_block->code.instructions[instruction_index++] = push->data.bytes.raw[i++];
+				basic_block->code.instructions[instruction_index++] = push->data.bytes.raw[i++];
+				basic_block->code.instructions[instruction_index++] = PSH;
+				basic_block->code.instructions[instruction_index++] = REG(FULL, AR);
+				basic_block->code.instructions[instruction_index++] = 0;
+				basic_block->code.instructions[instruction_index++] = 0;
+				basic_block->code.instruction_count += 5;
+			}
+			break;
+		case NEST_DATA:
+			basic_block = pregen_push(comp, basic_block, push->data.push);
+			instruction_index = basic_block->code.instruction_count*4;
+			break;
+		case CODE_DATA:
+			pregenerate(comp, push->data.code);//TODO these need to be pregenerated first, otherwise the arena overlaps
+			code_tree* code = push->data.code;
+			while (code != NULL){
+				word n = code->code.instruction_count * 4;
+				pool_request(comp->mem, n);
+				for (word i = n;i>0;i-=4){
+					word m = i-1;
+					for (word k = m-4;k<m;k+=2){
+						basic_block->code.instructions[instruction_index++] = PSS;
+						basic_block->code.instructions[instruction_index++] = code->code.instructions[k];
+						basic_block->code.instructions[instruction_index++] = code->code.instructions[k+1];
+						basic_block->code.instructions[instruction_index++] = 0;
+						basic_block->code.instruction_count += 1;
+					}
+				}
+				code = code->next;
+			}
+			break;
+		}
+		push = push->next;
+	}
+}
+
+//TODO all specific purpose registers need to be preserved
+code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* call){
+	word instruction_index = basic_block->code.instruction_count*4;
+	basic_block->code.instructions[instruction_index++] = CAL;
+	basic_block->code.instructions[instruction_index++] = 0;
+	basic_block->code.instructions[instruction_index++] = 0;
+	basic_block->code.instructions[instruction_index++] = 0;
+	basic_block->code.instruction_count += 1;
+	call_tree* function = call;
+	call = call->next;
+	if (function->type == CALL_ARG){
+		basic_block = pregen_call(comp, basic_block, function->data.call);
+		instruction_index = basic_block->code.instruction_count * 4;
+		pool_request(comp->mem, 4);
+		basic_block->code.instructions[instruction_index++] = POP;
+		basic_block->code.instructions[instruction_index++] = REG(FULL, LR);
+		basic_block->code.instructions[instruction_index++] = 0;
+		basic_block->code.instructions[instruction_index++] = 0;
+		basic_block->code.instruction_count += 1;
+		function = NULL;
+	}
+	else if (function->type == PUSH_ARG){
+		basic_block = pregen_push(comp, basic_block, call->data.push);
+		instruction_index = basic_block->code.instruction_count * 4;
+		pool_request(comp->mem, 4);
+		basic_block->code.instructions[instruction_index++] = POP;
+		basic_block->code.instructions[instruction_index++] = REG(FULL, LR);
+		basic_block->code.instructions[instruction_index++] = 0;
+		basic_block->code.instructions[instruction_index++] = 0;
+		basic_block->code.instruction_count += 1;
+		function = NULL;
+	}
+	while (call != NULL){
+		switch (call->type){
+		case CALL_ARG:
+			pool_request(comp->mem, 4);
+			basic_block = pregen_call(comp, basic_block, call->data.call);
+			instruction_index = basic_block->code.instruction_count * 4;
+			break;
+		case PUSH_ARG:
+			//TODO in case something needs to be requested from the pool here
+			basic_block = pregen_push(comp, basic_block, call->data.push);
+			instruction_index = basic_block->code.instruction_count * 4;
+			break;
+		case REG_ARG:
+			pool_request(comp->mem, 4);
+			basic_block->code.instructions[instruction_index++] = PSH;
+			basic_block->code.instructions[instruction_index++] = call->data.reg;
+			basic_block->code.instructions[instruction_index++] = 0;
+			basic_block->code.instructions[instruction_index++] = 0;
+			basic_block->code.instruction_count += 1;
+			break;
+		case LABEL_ARG:
+		case SUBLABEL_ARG:
+			pool_request(comp->mem, 4*5);
+			basic_block->code.instructions[instruction_index++] = LDS; // TODO note this needs to be tracked and replaced
+			basic_block->code.instructions[instruction_index++] = REG(L16, AR);
+			basic_block->code.instructions[instruction_index++] = 0xDE;
+			basic_block->code.instructions[instruction_index++] = 0x57;
+			basic_block->code.instructions[instruction_index++] = LDS;
+			basic_block->code.instructions[instruction_index++] = REG(LM16, AR);
+			basic_block->code.instructions[instruction_index++] = 0xAD;
+			basic_block->code.instructions[instruction_index++] = 0xD0;
+			basic_block->code.instructions[instruction_index++] = LDS;
+			basic_block->code.instructions[instruction_index++] = REG(RM16, AR);
+			basic_block->code.instructions[instruction_index++] = 0xDE;
+			basic_block->code.instructions[instruction_index++] = 0x57;
+			basic_block->code.instructions[instruction_index++] = LDS;
+			basic_block->code.instructions[instruction_index++] = REG(R16, AR);
+			basic_block->code.instructions[instruction_index++] = 0xAD;
+			basic_block->code.instructions[instruction_index++] = 0xD1;
+			basic_block->code.instructions[instruction_index++] = PSH;
+			basic_block->code.instructions[instruction_index++] = REG(FULL, AR);
+			basic_block->code.instructions[instruction_index++] = 0;
+			basic_block->code.instructions[instruction_index++] = 0;
+			basic_block->code.instruction_count += 5;
+			break;
+		case NUMERIC_ARG:
+			pool_request(comp->mem, 4);
+			basic_block->code.instructions[instruction_index++] = PSS;
+			basic_block->code.instructions[instruction_index++] = (call->data.number & 0xFF00) >> 8;
+			basic_block->code.instructions[instruction_index++] = (call->data.number & 0xFF);
+			basic_block->code.instructions[instruction_index++] = 0;
+			basic_block->code.instruction_count += 1;
+			break;
+		}
+		call = call->next;
+	}
+	code_tree* new_block = pool_request(comp->mem, sizeof(code_tree));
+	new_block->type = INSTRUCTION_JUMP;
+	new_block->labeling = NOT_LABELED;
+	new_block->dest = basic_block->dest;
+	new_block->dest_block = basic_block->dest_block;
+	new_block->next = basic_block->next;
+	basic_block->next = new_block;
+	new_block->code.instructions = pool_request(comp->mem, 4);
+	new_block->instruction_count = 1;
+	instruction_index = 0;
+	if (function == NULL){
+		new_block->code.instructions[instruction_index++] = BNC;
+		new_block->code.instructions[instruction_index++] = 2; //TODO mode
+		new_block->code.instructions[instruction_index++] = 0;
+		new_block->code.instructions[instruction_index++] = REG(FULL, LR);
+		return new_block;
+	}
+	switch (function->type){
+	case REG_ARG:
+		new_block->code.instructions[instruction_index++] = BNC;
+		new_block->code.instructions[instruction_index++] = 2; //TODO mode
+		new_block->code.instructions[instruction_index++] = 0;
+		new_block->code.instructions[instruction_index++] = function->data.reg;
+		return new_block;
+	case LABEL_ARG:
+		new_block->code.instructions[instruction_index++] = BNC;
+		new_block->code.instructions[instruction_index++] = 2; //TODO mode
+		new_block->code.instructions[instruction_index++] = 0;
+		new_block->code.instructions[instruction_index++] = 0;
+		//TODO branch note this may need to be tracked an replaced
+		return new_block;
+	case SUBLABEL_ARG:
+		new_block->type = INSTRUCTION_SUBJUMP;
+		new_block->code.instructions[instruction_index++] = BNC;
+		new_block->code.instructions[instruction_index++] = 2; //TODO mode
+		new_block->code.instructions[instruction_index++] = 0;
+		new_block->code.instructions[instruction_index++] = 0;
+		//TODO branch note this may need to be tracked an replaced
+		return new_block;
+	case NUMERIC_ARG:
+		new_block->code.instructions[instruction_index++] = BNC;
+		new_block->code.instructions[instruction_index++] = 1;
+		new_block->code.instructions[instruction_index++] = (function->data.number & 0xFF00) >> 8;
+		new_block->code.instructions[instruction_index++] = (function->data.number & 0xFF);
+		return new_block;
+	}
+	return new_block;
+}
+
+byte pregenerate(compiler* const comp, code_tree* basic_block){
+	while (basic_block != NULL){
+		if (basic_block->type == PUSH_BLOCK){
+			pregen_push(comp, basic_block, basic_block->data.push, &basic_block->code);
+		}
+		else if (basic_block->type == CALL_BLOCK){
+			basic_block->code.instructions = pool_request(comp->mem, 4);
+			basic_block->code.instruction_count = 0;
+			pregen_call(comp, basic_block, basic_block->data.call);
+		}
+		basic_block = basic_block->next;
+	}
+}
+
 byte compile_cstr(compiler* const comp){
 	lex_cstr(comp);
 	ASSERT_ERR(0);
+#ifdef ORB_DEBUG
 	show_tokens(comp);
+#endif
 	parse_tokens(comp);
 	ASSERT_ERR(0);
+#ifdef ORB_DEBUG
 	show_block(comp, comp->ir, 0);
+#endif
+	pregenerate(comp, comp->ir);
 	return 0;
 }
 
