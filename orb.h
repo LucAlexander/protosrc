@@ -190,16 +190,18 @@ typedef struct code_tree {
 	} labeling;
 } code_tree;
 
+typedef enum THUNK_MEMBER {
+	FULFILLED_MEMBER,
+	PENDING_MEMBER
+} THUNK_MEMBER;
+
 typedef struct block_scope {
 	token pending_source;
 	block_scope* next;
 	code_tree* label;
 	code_tree** ref;
 	pool* mem;
-	enum {
-		FULFILLED_MEMBER,
-		PENDING_MEMBER
-	} type;
+	THUNK_MEMBER type;
 } block_scope;
 
 MAP_DEF(block_scope)
@@ -216,6 +218,16 @@ byte block_scope_add_member(block_scope_map* const block, token t, code_tree* me
 code_tree* block_scope_check_member(block_scope_map* const block, token t, code_tree** ref);
 void bsms_push(bsms* stack);
 void bsms_pop(bsms* stack);
+
+typedef struct loc_thunk loc_thunk;
+
+typedef struct loc_thunk {
+	loc_thunk* next;
+	//TODO need to figure out what the correct key/data/ref are
+	THUNK_MEMBER type;
+} loc_thunk;
+
+MAP_DEF(loc_thunk)
 
 typedef struct {
 	string str;

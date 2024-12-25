@@ -10,6 +10,7 @@ MAP_IMPL(OPCODE)
 MAP_IMPL(REGISTER)
 MAP_IMPL(REG_PARTITION)
 MAP_IMPL(block_scope)
+MAP_IMPL(loc_thunk)
 
 #define SHORT(lit) (lit&0xFF00)>>8, lit&0xFF
 #define NOP_                   NOP, 0,    0, 0
@@ -2055,8 +2056,6 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 	code_tree* new_block = pool_request(comp->mem, sizeof(code_tree));
 	new_block->type = INSTRUCTION_JUMP;
 	new_block->labeling = NOT_LABELED;
-	new_block->dest = basic_block->dest;
-	new_block->dest_block = basic_block->dest_block;
 	new_block->next = basic_block->next;
 	basic_block->next = new_block;
 	new_block->code.instructions = pool_request(comp->code, 4);
@@ -2077,6 +2076,8 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 		new_block->code.instructions[instruction_index++] = function->data.reg;
 		return new_block;
 	case LABEL_ARG:
+		new_block->dest = function->data.labeling.label;
+		new_block->dest_block = function->data.labeling.dest_block;
 		new_block->code.instructions[instruction_index++] = BNC;
 		new_block->code.instructions[instruction_index++] = 2; //TODO mode
 		new_block->code.instructions[instruction_index++] = 0;
@@ -2085,6 +2086,8 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 		return new_block;
 	case SUBLABEL_ARG:
 		new_block->type = INSTRUCTION_SUBJUMP;
+		new_block->dest = function->data.labeling.label;
+		new_block->dest_block = function->data.labeling.dest_block;
 		new_block->code.instructions[instruction_index++] = BNC;
 		new_block->code.instructions[instruction_index++] = 2; //TODO mode
 		new_block->code.instructions[instruction_index++] = 0;
