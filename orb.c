@@ -1839,7 +1839,7 @@ void show_tokens(compiler* const comp){
 	printf("\n");
 }
 
-code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* push){
+code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* basic_block, data_tree* push){
 	word instruction_index = basic_block->code.instruction_count*4;
 	while (push != NULL){
 		switch (push->type){
@@ -1902,11 +1902,11 @@ code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* 
 			basic_block->code.instruction_count += 5;
 			break;
 		case NEST_DATA:
-			basic_block = pregen_push(comp, basic_block, push->data.nest);
+			basic_block = pregen_push(comp, sublines, basic_block, push->data.nest);
 			instruction_index = basic_block->code.instruction_count*4;
 			break;
 		case CODE_DATA:
-			pregenerate(comp, push->data.code);
+			pregenerate(comp, sublines, push->data.code);
 			code_tree* code = push->data.code;
 			while (code != NULL){
 				word n = code->code.instruction_count * 4;
@@ -1967,7 +1967,7 @@ code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* 
 	return basic_block;
 }
 
-code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* call){
+code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* basic_block, call_tree* call){
 	word instruction_index = basic_block->code.instruction_count*4;
 	basic_block->code.instructions[instruction_index++] = CAL;
 	basic_block->code.instructions[instruction_index++] = 0;
@@ -1977,7 +1977,7 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 	call_tree* function = call;
 	call = call->next;
 	if (function->type == CALL_ARG){
-		basic_block = pregen_call(comp, basic_block, function->data.call);
+		basic_block = pregen_call(comp, sublines, basic_block, function->data.call);
 		instruction_index = basic_block->code.instruction_count * 4;
 		pool_request(comp->code, 4);
 		basic_block->code.instructions[instruction_index++] = POP;
@@ -1988,7 +1988,7 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 		function = NULL;
 	}
 	else if (function->type == PUSH_ARG){
-		basic_block = pregen_push(comp, basic_block, call->data.push);
+		basic_block = pregen_push(comp, sublines, basic_block, call->data.push);
 		instruction_index = basic_block->code.instruction_count * 4;
 		pool_request(comp->code, 4);
 		basic_block->code.instructions[instruction_index++] = POP;
@@ -2002,11 +2002,11 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 		switch (call->type){
 		case CALL_ARG:
 			pool_request(comp->code, 4);
-			basic_block = pregen_call(comp, basic_block, call->data.call);
+			basic_block = pregen_call(comp, sublines, basic_block, call->data.call);
 			instruction_index = basic_block->code.instruction_count * 4;
 			break;
 		case PUSH_ARG:
-			basic_block = pregen_push(comp, basic_block, call->data.push);
+			basic_block = pregen_push(comp, sublines, basic_block, call->data.push);
 			instruction_index = basic_block->code.instruction_count * 4;
 			break;
 		case REG_ARG:
@@ -2106,21 +2106,126 @@ code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* 
 	return new_block;
 }
 
-byte pregenerate(compiler* const comp, code_tree* basic_block){
+byte pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_block){
 	while (basic_block != NULL){
 		if (basic_block->type == PUSH_BLOCK){
 			basic_block->code.instructions = pool_request(comp->code, 4);
 			basic_block->code.instruction_count = 0;
-			pregen_push(comp, basic_block, basic_block->data.push);
+			pregen_push(comp, sublines, basic_block, basic_block->data.push);
 		}
 		else if (basic_block->type == CALL_BLOCK){
 			basic_block->code.instructions = pool_request(comp->code, 4);
 			basic_block->code.instruction_count = 0;
-			pregen_call(comp, basic_block, basic_block->data.call);
+			pregen_call(comp, sublines, basic_block, basic_block->data.call);
 		}
 		basic_block = basic_block->next;
 	}
 	return 0;
+}
+
+byte loc_thunk_add_member(ltms* const stack, token t){
+	loc_thunk_map* thunk = stack->map[stack->size-1];
+	char* name = t.text;
+	word size = t.size;
+	name[size] = '\0';
+	loc_thunk* node = loc_thunk_map_access(thunk, name);
+	name[size] = save;
+	if (node != NULL){
+		if (node->type == FULFILLED_MEMBER){
+			return 1;
+		}
+		node->type = FULFILLED_MEMBER;
+		while (node != NULL){
+			node->f(node->jump, stack->line);
+			node = node->next;
+		}
+		return 0;
+	}
+	node = pool_request(thunk->mem, sizeof(loc_thunk));
+	node->type = FULFILLED_MEMBER;
+	node->next = NULL;
+	node->label = t;
+	node->line = stack->line;
+	node->jump = NULL;
+	char* new_name = pool_request(thunk->mem, size);
+	strncpy(new_name, name, size);
+	thunk_loc_map_insert(thunk, new_name, node);
+	return 0;
+}
+
+void loc_thunk_check_member(ltms* const stack, token t, void(*f)(code_tree*, word), code_tree* member){
+	loc_thunk_map* thunk = stack->map[stack->size-1];
+	char* name = t.text;
+	word size = t.size;
+	char save = name[size];
+	name[size] = '\0';
+	loc_thunk* node = loc_thunk_scope_map_access(thunk, name);
+	name[size] = save;
+	if (node != NULL){
+		if (node->type == FULFILLED_MEMBER){
+			f(member, node->line);
+			return;
+		}
+		loc_thunk* temp = node->next;
+		node->next = pool_request(thunk->mem, sizeof(loc_thunk));
+		node = node->next;
+		node->next = temp;
+		node->type = PENDING_MEMBER;
+		node->jump = member;
+		node->label = t;
+		node->line = 0;
+		node->f = f;
+		return;
+	}
+	node = pool_request(thunk->mem, sizeof(loc_thunk));
+	node->type = PENDING_MEMBER;
+	node->jump = member;
+	node->next = NULL;
+	node->label = t;
+	node->line = 0;
+	node->f = f;
+	char* new_name = pool_request(thunk->mem, size);
+	strncpy(new_name, name, size);
+	strncpy(new_name, name, size);
+	loc_thunk_map_insert(thunk, new_name, node);
+	return;
+}
+
+void ltms_push(ltms* stack){
+	if (stack->size >= stack->capacity){
+		byte old_cap = stack->capacity;
+		stack->capacity *= 2;
+		loc_thunk_map* old = stack->map;
+		stack->map = pool_request(old->mem, sizeof(loc_thunk_map)*stack->capacity);
+		for (byte i = 0;i<old_cap;++i){
+			stack->map[i] = old[i];
+		}
+	}
+	stack-map[stack->size] = loc_thunk_map_init(stack->map[0].mem);
+	stack->size += 1;
+}
+
+void ltms_pop(ltts* stack){
+	stack->size -= 1;
+}
+
+byte backpass(compiler* const comp){
+	{
+		comp->lines.map = loc_thunk_map_init(comp->mem);
+		comp->lines->line = 0;
+		comp->lines.size = 1;
+		comp->lines.capacity = PUSH_LABEL_SCOPE_LIMIT;
+	}
+	pool subline_pool = pool_alloc(AUX_SIZE, POOL_STATIC);
+	ltms sublines = {
+		.map = pool_request(comp->mem, sizeof(loc_thunk_map)*PUSH_LABEL_SCOPE_LIMIT),
+		.line = 0,
+		.size = 1,
+		.capacity = PUSH_LABEL_SCOPE_LIMIT
+	};
+	sublines.map[0] = loc_thunk_map_init(&subline_pool);
+	pregenerate(comp, &sublines, comp->ir);
+	pool_dealloc(&subline_pool);
 }
 
 //TODO allow 4 byte and 8 byte tokens for pushes and arguments
@@ -2137,7 +2242,7 @@ byte compile_cstr(compiler* const comp){
 	show_block(comp, comp->ir, 0);
 	printf("\033[1;42mPRE-GENERATING:\033[0m");
 #endif
-	pregenerate(comp, comp->ir);
+	backpass(comp);
 #ifdef ORB_DEBUG
 	show_block(comp, comp->ir, 0);
 	printf("\033[1;42mDONE\033[0m\n");

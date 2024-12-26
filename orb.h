@@ -214,8 +214,8 @@ typedef struct bsms {
 	byte capacity;
 } bsms;
 
-byte block_scope_add_member(block_scope_map* const block, token t, code_tree* member);
-code_tree* block_scope_check_member(block_scope_map* const block, token t, code_tree** ref);
+byte block_scope_add_member(block_scope_map* const block, token t);
+code_tree* block_scope_check_member(block_scope_map* const block, token t, code_tree* member);
 void bsms_push(bsms* stack);
 void bsms_pop(bsms* stack);
 
@@ -223,11 +223,26 @@ typedef struct loc_thunk loc_thunk;
 
 typedef struct loc_thunk {
 	loc_thunk* next;
-	//TODO need to figure out what the correct key/data/ref are
+	token label; // pending + fulfilled label
+	word line; // fulfilled line
+	code_tree* jump; // pending jump
+	void (*f)(code_tree* jump, word line);
 	THUNK_MEMBER type;
 } loc_thunk;
 
 MAP_DEF(loc_thunk)
+
+typedef struct ltms {
+	loc_thunk_map* map;
+	word line; // current line of generated code in pass
+	byte size;
+	byte capacity;
+} ltms;
+
+byte loc_thunk_add_member(ltms* const stack, token t, code_tree* member);
+void loc_thunk_check_member(ltms* const stack, token t, void(*f)(code_tree*, word), code_tree** ref);
+void ltms_push(ltms* stack);
+void ltms_pop(ltts* stack);
 
 typedef struct {
 	string str;
@@ -239,6 +254,7 @@ typedef struct {
 	word token_count;
 	code_tree* ir;
 	bsms labels;
+	ltms lines;
 	pool* mem;
 	pool* code;
 	char* err;
@@ -277,8 +293,8 @@ void show_binary(char* filename);
 void run_rom(char* filename);
 byte check_label_bucket(compiler* const comp, block_scope_map_bucket* bucket);
 byte remaining_labels(compiler* const comp, block_scope_map* const block);
-code_tree* pregen_push(compiler* const comp, code_tree* basic_block, data_tree* push);
-code_tree* pregen_call(compiler* const comp, code_tree* basic_block, call_tree* call);
-byte pregenerate(compiler* const comp, code_tree* basic_block);
+code_tree* pregen_push(compiler* const comp, ltms* const sublines, code_tree* basic_block, data_tree* push);
+code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* basic_block, call_tree* call);
+byte pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_block);
 
 #endif
