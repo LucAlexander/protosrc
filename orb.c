@@ -1873,6 +1873,8 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 				basic_block->code.instructions[instruction_index++] = 0;
 				basic_block->code.instructions[instruction_index++] = 0;
 				basic_block->code.instruction_count += 5;
+				comp->lines.line += 5;
+				sublines->lines.line += 5;
 			}
 			byte line[8] = {0};
 			for (word i = 8-remainder;i<8;++i){
@@ -1900,13 +1902,19 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 			basic_block->code.instructions[instruction_index++] = 0;
 			basic_block->code.instructions[instruction_index++] = 0;
 			basic_block->code.instruction_count += 5;
+			comp->lines.line += 5;
+			sublines->lines.line += 5;
 			break;
 		case NEST_DATA:
 			basic_block = pregen_push(comp, sublines, basic_block, push->data.nest);
 			instruction_index = basic_block->code.instruction_count*4;
 			break;
 		case CODE_DATA:
+			ltms_push(sublines);
+			ltms_push(&comp->lines);
 			pregenerate(comp, sublines, push->data.code);
+			ltms_pop(&comp->lines);
+			ltms_pop(sublines);
 			code_tree* code = push->data.code;
 			while (code != NULL){
 				word n = code->code.instruction_count * 4;
@@ -1927,6 +1935,8 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 						basic_block->code.instructions[instruction_index++] = 0;
 						basic_block->code.instructions[instruction_index++] = 0;
 						basic_block->code.instruction_count += 3;
+						comp->lines.line += 3;
+						sublines->lines.line += 3;
 						hi = 0;
 						continue;
 					}
@@ -1940,6 +1950,8 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 					basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
 					basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
 					basic_block->code.instruction_count += 2;
+					comp->lines.line += 2;
+					sublines->lines.line += 2;
 					hi = 1;
 				}
 				if (hi == 1){
@@ -1957,6 +1969,8 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 					basic_block->code.instructions[instruction_index++] = 0;
 					basic_block->code.instructions[instruction_index++] = 0;
 					basic_block->code.instruction_count += 3;
+					comp->lines.line += 3;
+					sublines->lines.line += 3;
 				}
 				code = code->next;
 			}
@@ -1974,6 +1988,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 	basic_block->code.instructions[instruction_index++] = 0;
 	basic_block->code.instructions[instruction_index++] = 0;
 	basic_block->code.instruction_count += 1;
+	comp->lines.line += 1;
+	sublines->lines.line += 1;
 	call_tree* function = call;
 	call = call->next;
 	if (function->type == CALL_ARG){
@@ -1985,6 +2001,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 		basic_block->code.instructions[instruction_index++] = 0;
 		basic_block->code.instructions[instruction_index++] = 0;
 		basic_block->code.instruction_count += 1;
+		comp->lines.line += 1;
+		sublines->lines.line += 1;
 		function = NULL;
 	}
 	else if (function->type == PUSH_ARG){
@@ -1996,6 +2014,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 		basic_block->code.instructions[instruction_index++] = 0;
 		basic_block->code.instructions[instruction_index++] = 0;
 		basic_block->code.instruction_count += 1;
+		comp->lines.line += 1;
+		sublines->lines.line += 1;
 		function = NULL;
 	}
 	while (call != NULL){
@@ -2016,6 +2036,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 			basic_block->code.instructions[instruction_index++] = 0;
 			basic_block->code.instructions[instruction_index++] = 0;
 			basic_block->code.instruction_count += 1;
+			comp->lines.line += 1;
+			sublines->lines.line += 1;
 			break;
 		case LABEL_ARG:
 		case SUBLABEL_ARG:
@@ -2041,6 +2063,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 			basic_block->code.instructions[instruction_index++] = 0;
 			basic_block->code.instructions[instruction_index++] = 0;
 			basic_block->code.instruction_count += 5;
+			comp->lines.line += 5;
+			sublines->lines.line += 5;
 			break;
 		case NUMERIC_ARG:
 			pool_request(comp->code, 4);
@@ -2048,6 +2072,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 			basic_block->code.instructions[instruction_index++] = (call->data.number & 0xFF00) >> 8;
 			basic_block->code.instructions[instruction_index++] = (call->data.number & 0xFF);
 			basic_block->code.instructions[instruction_index++] = 0;
+			comp->lines.line += 1;
+			sublines->lines.line += 1;
 			basic_block->code.instruction_count += 1;
 			break;
 		}
@@ -2060,6 +2086,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 	basic_block->next = new_block;
 	new_block->code.instructions = pool_request(comp->code, 4);
 	new_block->code.instruction_count = 1;
+	comp->lines.line += 1;
+	sublines->lines.line += 1;
 	instruction_index = 0;
 	if (function == NULL){
 		new_block->code.instructions[instruction_index++] = BNC;
@@ -2108,6 +2136,12 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 
 byte pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_block){
 	while (basic_block != NULL){
+		if (basic_block->labeling == LABELED){
+			loc_thunk_add_member(&comp->lines, basic_block->label);
+		}
+		else if (basic_block->labeling == SUBLABELED){
+			loc_thunk_add_member(sublines, basic_block->label);
+		}
 		if (basic_block->type == PUSH_BLOCK){
 			basic_block->code.instructions = pool_request(comp->code, 4);
 			basic_block->code.instruction_count = 0;
@@ -2117,6 +2151,13 @@ byte pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_bl
 			basic_block->code.instructions = pool_request(comp->code, 4);
 			basic_block->code.instruction_count = 0;
 			pregen_call(comp, sublines, basic_block, basic_block->data.call);
+		}
+		else {
+			if (basic_block->type == INSTRUCTION_JUMP || basic_block->type == INSTRUCTION_SUBJUMP){
+				// TODO check member
+			}
+			comp->lines.line += basic_block->code.instruction_count;
+			sublines->lines.line += basic_block->code.instruction_count;
 		}
 		basic_block = basic_block->next;
 	}
@@ -2226,6 +2267,7 @@ byte backpass(compiler* const comp){
 	sublines.map[0] = loc_thunk_map_init(&subline_pool);
 	pregenerate(comp, &sublines, comp->ir);
 	pool_dealloc(&subline_pool);
+	return 0;
 }
 
 //TODO allow 4 byte and 8 byte tokens for pushes and arguments
