@@ -214,8 +214,8 @@ typedef struct bsms {
 	byte capacity;
 } bsms;
 
-byte block_scope_add_member(block_scope_map* const block, token t);
-code_tree* block_scope_check_member(block_scope_map* const block, token t, code_tree* member);
+byte block_scope_add_member(block_scope_map* const block, token t, code_tree* member);
+code_tree* block_scope_check_member(block_scope_map* const block, token t, code_tree** ref);
 void bsms_push(bsms* stack);
 void bsms_pop(bsms* stack);
 
@@ -243,10 +243,10 @@ typedef struct ltms {
 
 byte replace_call_arg(code_tree* jump, word jumpline, word line);
 byte replace_call_dest(code_tree* jump, word jumpline, word line);
-byte loc_thunk_add_member(ltms* const stack, token t, code_tree* member);
-void loc_thunk_check_member(ltms* const stack, token t, byte(*f)(code_tree*, word, word), code_tree** ref);
+byte loc_thunk_add_member(ltms* const stack, token t);
+void loc_thunk_check_member(ltms* const stack, token t, byte(*f)(code_tree*, word, word), code_tree* ref);
 void ltms_push(ltms* stack);
-void ltms_pop(ltts* stack);
+void ltms_pop(ltms* stack);
 
 typedef struct {
 	string str;
@@ -299,6 +299,7 @@ byte check_label_bucket(compiler* const comp, block_scope_map_bucket* bucket);
 byte remaining_labels(compiler* const comp, block_scope_map* const block);
 code_tree* pregen_push(compiler* const comp, ltms* const sublines, code_tree* basic_block, data_tree* push);
 code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* basic_block, call_tree* call);
-byte pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_block);
+void pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_block);
+void correct_offsets(compiler* const comp, ltms* const sublines, code_tree* basic_block);
 
 #endif
