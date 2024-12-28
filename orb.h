@@ -235,10 +235,10 @@ MAP_DEF(loc_thunk)
 
 typedef struct ltms {
 	loc_thunk_map* map;
-	word line; // current line of generated code in pass
+	word* line; // current line of generated code in pass
 	byte size;
 	byte capacity;
-	byte changed;
+	byte* changed;
 } ltms;
 
 byte replace_call_arg(code_tree* jump, word jumpline, word line);

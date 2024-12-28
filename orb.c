@@ -1875,8 +1875,8 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 				basic_block->code.instructions[instruction_index++] = 0;
 				basic_block->code.instructions[instruction_index++] = 0;
 				basic_block->code.instruction_count += 5;
-				comp->lines.line += 5;
-				sublines->lines.line += 5;
+				comp->lines.line[comp->lines.size-1] += 5;
+				sublines->lines.line[sublines->lines.size-1] += 5;
 			}
 			byte line[8] = {0};
 			for (word i = 8-remainder;i<8;++i){
@@ -1904,8 +1904,8 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 			basic_block->code.instructions[instruction_index++] = 0;
 			basic_block->code.instructions[instruction_index++] = 0;
 			basic_block->code.instruction_count += 5;
-			comp->lines.line += 5;
-			sublines->lines.line += 5;
+			comp->lines.line[comp->lines.size-1] += 5;
+			sublines->lines.line[sublines->lines.size-1] += 5;
 			break;
 		case NEST_DATA:
 			basic_block = pregen_push(comp, sublines, basic_block, push->data.nest);
@@ -1914,12 +1914,16 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 		case CODE_DATA:
 			ltms_push(sublines);
 			ltms_push(&comp->lines);
-			word line_save = comp->lines.line;
-			sublines->line = 0;
-			comp->lines.line = 0;
 			pregenerate(comp, sublines, push->data.code);
-			comp->lines.line = line_save;
-			sublines->line = line_save;
+			while (comp->lines.changed[comp->lines.size-1] || sublines->changed[sublines->size-1]){
+				loc_thunk_map_empty(&sublines->map[sublines->size-1]);
+				loc_thunk_map_empty(&comp->lines.map[comp->lines.size-1]);
+				sublines->line[sublines->size-1] = 0;
+				sublines->changed[sublines->size-1] = 0;
+				comp->lines.line[comp->lines.size-1] = 0;
+				comp->lines.changed[comp->lines.size-1] = 0;
+				correct_offsets(comp, sublines, comp->ir);
+			}
 			ltms_pop(&comp->lines);
 			ltms_pop(sublines);
 			code_tree* code = push->data.code;
@@ -1942,8 +1946,8 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 						basic_block->code.instructions[instruction_index++] = 0;
 						basic_block->code.instructions[instruction_index++] = 0;
 						basic_block->code.instruction_count += 3;
-						comp->lines.line += 3;
-						sublines->lines.line += 3;
+						comp->lines.line[comp->lines.size-1] += 3;
+						sublines->lines.line[sublines->lines.size-1] += 3;
 						hi = 0;
 						continue;
 					}
@@ -1957,8 +1961,8 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 					basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
 					basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
 					basic_block->code.instruction_count += 2;
-					comp->lines.line += 2;
-					sublines->lines.line += 2;
+					comp->lines.line[comp->lines.size-1] += 2;
+					sublines->lines.line[sublines->lines.size-1] += 2;
 					hi = 1;
 				}
 				if (hi == 1){
@@ -1976,8 +1980,8 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 					basic_block->code.instructions[instruction_index++] = 0;
 					basic_block->code.instructions[instruction_index++] = 0;
 					basic_block->code.instruction_count += 3;
-					comp->lines.line += 3;
-					sublines->lines.line += 3;
+					comp->lines.line[comp->lines.size-1] += 3;
+					sublines->lines.line[sublines->lines.size-1] += 3;
 				}
 				code = code->next;
 			}
@@ -1995,8 +1999,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 	basic_block->code.instructions[instruction_index++] = 0;
 	basic_block->code.instructions[instruction_index++] = 0;
 	basic_block->code.instruction_count += 1;
-	comp->lines.line += 1;
-	sublines->lines.line += 1;
+	comp->lines.line[comp->lines.size-1] += 1;
+	sublines->lines.line[sublines->lines.size-1] += 1;
 	call_tree* function = call;
 	call = call->next;
 	if (function->type == CALL_ARG){
@@ -2008,8 +2012,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 		basic_block->code.instructions[instruction_index++] = 0;
 		basic_block->code.instructions[instruction_index++] = 0;
 		basic_block->code.instruction_count += 1;
-		comp->lines.line += 1;
-		sublines->lines.line += 1;
+		comp->lines.line[comp->lines.size-1] += 1;
+		sublines->lines.line[sublines->lines.size-1] += 1;
 		function = NULL;
 	}
 	else if (function->type == PUSH_ARG){
@@ -2021,8 +2025,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 		basic_block->code.instructions[instruction_index++] = 0;
 		basic_block->code.instructions[instruction_index++] = 0;
 		basic_block->code.instruction_count += 1;
-		comp->lines.line += 1;
-		sublines->lines.line += 1;
+		comp->lines.line[comp->lines.size-1] += 1;
+		sublines->lines.line[sublines->lines.size-1] += 1;
 		function = NULL;
 	}
 	while (call != NULL){
@@ -2043,8 +2047,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 			basic_block->code.instructions[instruction_index++] = 0;
 			basic_block->code.instructions[instruction_index++] = 0;
 			basic_block->code.instruction_count += 1;
-			comp->lines.line += 1;
-			sublines->lines.line += 1;
+			comp->lines.line[comp->lines.size-1] += 1;
+			sublines->lines.line[sublines->lines.size-1] += 1;
 			break;
 		case LABEL_ARG:
 		case SUBLABEL_ARG:
@@ -2070,8 +2074,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 			basic_block->code.instructions[instruction_index++] = 0;
 			basic_block->code.instructions[instruction_index++] = 0;
 			basic_block->code.instruction_count += 5;
-			comp->lines.line += 5;
-			sublines->lines.line += 5;
+			comp->lines.line[comp->lines.size-1] += 5;
+			sublines->lines.line[sublines->lines.size-1] += 5;
 			if (call->type == LABEL_ARG){
 				loc_thunk_check_member(&comp->lines, basic_block->dest, replace_call_arg, basic_block);
 			}
@@ -2085,8 +2089,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 			basic_block->code.instructions[instruction_index++] = (call->data.number & 0xFF00) >> 8;
 			basic_block->code.instructions[instruction_index++] = (call->data.number & 0xFF);
 			basic_block->code.instructions[instruction_index++] = 0;
-			comp->lines.line += 1;
-			sublines->lines.line += 1;
+			comp->lines.line[comp->lines.size-1] += 1;
+			sublines->lines.line[sublines->lines.size-1] += 1;
 			basic_block->code.instruction_count += 1;
 			break;
 		}
@@ -2099,8 +2103,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 	basic_block->next = new_block;
 	new_block->code.instructions = pool_request(comp->code, 4*5);
 	new_block->code.instruction_count = 1;
-	comp->lines.line += 1;
-	sublines->lines.line += 1;
+	comp->lines.line[comp->lines.size-1] += 1;
+	sublines->lines.line[sublines->lines.size-1] += 1;
 	instruction_index = 0;
 	if (function == NULL){
 		new_block->code.instructions[instruction_index++] = BNC;
@@ -2256,9 +2260,7 @@ byte replace_call_dest(code_tree* jump, word jumpline, word line){
 void pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_block){
 	while (basic_block != NULL){
 		if (basic_block->labeling == LABELED){
-			if (sublines->changed == 1){
-				lines->changed = 1;
-			}
+			lines->changed[lines->size-1] |= sublines->changed[sublines->size-1];
 			line_thunk_map* subthunk = &sublines->map[sublines->size-1];
 			if (sublines->size == 1){
 				pool_empty(subthunk);
@@ -2286,8 +2288,8 @@ void pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_bl
 			else if (basic_blcok->type == INSTRUCTION_SUBJUMP){
 				loc_thunk_check_member(sublines, basic_block->dest, replace_normal_dest, basic_block);
 			}
-			comp->lines.line += basic_block->code.instruction_count;
-			sublines->lines.line += basic_block->code.instruction_count;
+			comp->lines.line[comp->lines.size-1] += basic_block->code.instruction_count;
+			sublines->lines.line[sublines->lines.size-1] += basic_block->code.instruction_count;
 		}
 		basic_block = basic_block->next;
 	}
@@ -2296,9 +2298,7 @@ void pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_bl
 void correct_offsets(compiler* const comp, ltms* const sublines, code_tree* basic_block){
 	while (basic_block != NULL){
 		if (basic_block->labeling == LABELED){
-			if (sublines->changed == 1){
-				lines->changed = 1;
-			}
+			lines->changed[lines->size-1] = sublines->changed[sublines->size-1];
 			line_thunk_map* subthunk = &sublines->map[sublines->size-1];
 			if (sublines->size == 1){
 				pool_empty(subthunk);
@@ -2309,22 +2309,14 @@ void correct_offsets(compiler* const comp, ltms* const sublines, code_tree* basi
 		else if (basic_block->labeling == SUBLABELED){
 			loc_thunk_add_member(sublines, basic_block->label);
 		}
-		if (basic_block->type == PUSH_BLOCK){
-			//TODO
+		if (basic_block->type == INSTRUCTION_JUMP){
+			loc_thunk_check_member(&comp->lines, basic_block->dest, replace_call_dest, basic_block);
 		}
-		else if (basic_block->type == CALL_BLOCK){
-			//TODO
+		else if (basic_blcok->type == INSTRUCTION_SUBJUMP){
+			loc_thunk_check_member(sublines, basic_block->dest, replace_normal_dest, basic_block);
 		}
-		else {
-			if (basic_block->type == INSTRUCTION_JUMP){
-				loc_thunk_check_member(&comp->lines, basic_block->dest, replace_call_dest, basic_block);
-			}
-			else if (basic_blcok->type == INSTRUCTION_SUBJUMP){
-				loc_thunk_check_member(sublines, basic_block->dest, replace_normal_dest, basic_block);
-			}
-			comp->lines.line += basic_block->code.instruction_count;
-			sublines->lines.line += basic_block->code.instruction_count;
-		}
+		comp->lines.line[comp->lines.size-1] += basic_block->code.instruction_count;
+		sublines->lines.line[sublines->lines.size-1] += basic_block->code.instruction_count;
 		basic_block = basic_block->next;
 	}
 }
@@ -2342,7 +2334,7 @@ byte loc_thunk_add_member(ltms* const stack, token t){
 		}
 		node->type = FULFILLED_MEMBER;
 		while (node != NULL){
-			stack->changed |= node->f(node->jump, node->jumpline, stack->line);
+			stack->changed[stack->size-1] |= node->f(node->jump, node->jumpline, stack->line);
 			node = node->next;
 		}
 		return 0;
@@ -2369,7 +2361,7 @@ void loc_thunk_check_member(ltms* const stack, token t, byte(*f)(code_tree*, wor
 	name[size] = save;
 	if (node != NULL){
 		if (node->type == FULFILLED_MEMBER){
-			stack->changed |= f(member, stack->line, node->line);
+			stack->changed[stack->size-1] |= f(member, stack->line, node->line);
 			return;
 		}
 		loc_thunk* temp = node->next;
@@ -2409,41 +2401,49 @@ void ltms_push(ltms* stack){
 			stack->map[i] = old[i];
 		}
 	}
-	stack-map[stack->size] = loc_thunk_map_init(stack->map[0].mem);
+	stack->map[stack->size] = loc_thunk_map_init(stack->map[0].mem);
+	stack->line[stack->size] = 0;
+	stack->changed[stack->size] = 0;
 	stack->size += 1;
 }
 
 void ltms_pop(ltts* stack){
 	stack->size -= 1;
+	stack->changed[stack->size-1] |= stack->changed[stack->size];
 }
 
 byte backpass(compiler* const comp){
 	{
-		comp->lines.map = loc_thunk_map_init(comp->mem);
-		comp->lines.line = 0;
+		comp->lines.map = pool_request(comp->mem, sizeof(loc_thunk_map)*PUSH_LABEL_SCOPE_LIMIT);
+		comp->lines.line = pool_request(comp->mem, sizeof(loc_thunk_map)*PUSH_LABEL_SCOPE_LIMIT);
 		comp->lines.size = 1;
 		comp->lines.capacity = PUSH_LABEL_SCOPE_LIMIT;
-		comp->lines.changed = 0;
+		comp->lines.changed = pool_request(comp->mem, sizeof(byte)*PUSH_LABEL_SCOPE_LIMIT);
 	}
+	comp->lines.map[0] = loc_thunk_map_init(comp->mem);
+	comp->lines.line[0] = 0;
+	comp->lines.changed[0] = 0;
 	pool subline_pool = pool_alloc(AUX_SIZE, POOL_STATIC);
 	ltms sublines = {
 		.map = pool_request(comp->mem, sizeof(loc_thunk_map)*PUSH_LABEL_SCOPE_LIMIT),
-		.line = 0,
+		.line = pool_request(comp->mem, sizeof(word)*PUSH_LABEL_SCOPE_LIMIT),
 		.size = 1,
 		.capacity = PUSH_LABEL_SCOPE_LIMIT,
-		.changed = 0
+		.changed = pool_request(comp->mem, sizeof(byte)*PUSH_LABEL_SCOPE_LIMIT)
 	};
 	sublines.map[0] = loc_thunk_map_init(&subline_pool);
+	sublines.line[0] = 0;
+	sublines.changed[0] = 0;
 	pregenerate(comp, &sublines, comp->ir);
 	ASSERT_LOCAL(comp->lines.size == 1 && sublines.size == 1, " loc_thunk_map stack corrupted\n");
-	while (comp->lines.changed == 1 || sublines.changed == 1){
+	while (comp->lines.changed[0] || sublines.changed[0]){
 		pool_empty(subline_pool);
 		loc_thunk_map_empty(&sublines.map[0]);
 		loc_thunk_map_empty(&comp->lines.map[0]);
-		sublines.line = 0;
-		sublines.changed = 0;
-		comp->lines.line = 0;
-		comp->lines.changed = 0;
+		sublines.line[0] = 0;
+		sublines.changed[0] = 0;
+		comp->lines.line[0] = 0;
+		comp->lines.changed[0] = 0;
 		correct_offsets(comp, &sublines, comp->ir);
 	}
 	pool_dealloc(&subline_pool);
@@ -2465,6 +2465,7 @@ byte compile_cstr(compiler* const comp){
 	printf("\033[1;42mPRE-GENERATING:\033[0m");
 #endif
 	backpass(comp);
+	ASSERT_ERR(0);
 #ifdef ORB_DEBUG
 	show_block(comp, comp->ir, 0);
 	printf("\033[1;42mDONE\033[0m\n");
