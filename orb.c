@@ -1914,7 +1914,12 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 		case CODE_DATA:
 			ltms_push(sublines);
 			ltms_push(&comp->lines);
+			word line_save = comp->lines.line;
+			sublines->line = 0;
+			comp->lines.line = 0;
 			pregenerate(comp, sublines, push->data.code);
+			comp->lines.line = line_save;
+			sublines->line = line_save;
 			ltms_pop(&comp->lines);
 			ltms_pop(sublines);
 			code_tree* code = push->data.code;
@@ -2289,7 +2294,39 @@ void pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_bl
 }
 
 void correct_offsets(compiler* const comp, ltms* const sublines, code_tree* basic_block){
-	//TODO
+	while (basic_block != NULL){
+		if (basic_block->labeling == LABELED){
+			if (sublines->changed == 1){
+				lines->changed = 1;
+			}
+			line_thunk_map* subthunk = &sublines->map[sublines->size-1];
+			if (sublines->size == 1){
+				pool_empty(subthunk);
+			}
+			line_thunk_map_empty(subthunk);
+			loc_thunk_add_member(&comp->lines, basic_block->label);
+		}
+		else if (basic_block->labeling == SUBLABELED){
+			loc_thunk_add_member(sublines, basic_block->label);
+		}
+		if (basic_block->type == PUSH_BLOCK){
+			//TODO
+		}
+		else if (basic_block->type == CALL_BLOCK){
+			//TODO
+		}
+		else {
+			if (basic_block->type == INSTRUCTION_JUMP){
+				loc_thunk_check_member(&comp->lines, basic_block->dest, replace_call_dest, basic_block);
+			}
+			else if (basic_blcok->type == INSTRUCTION_SUBJUMP){
+				loc_thunk_check_member(sublines, basic_block->dest, replace_normal_dest, basic_block);
+			}
+			comp->lines.line += basic_block->code.instruction_count;
+			sublines->lines.line += basic_block->code.instruction_count;
+		}
+		basic_block = basic_block->next;
+	}
 }
 
 byte loc_thunk_add_member(ltms* const stack, token t){
@@ -2383,7 +2420,7 @@ void ltms_pop(ltts* stack){
 byte backpass(compiler* const comp){
 	{
 		comp->lines.map = loc_thunk_map_init(comp->mem);
-		comp->lines->line = 0;
+		comp->lines.line = 0;
 		comp->lines.size = 1;
 		comp->lines.capacity = PUSH_LABEL_SCOPE_LIMIT;
 		comp->lines.changed = 0;
@@ -2403,7 +2440,9 @@ byte backpass(compiler* const comp){
 		pool_empty(subline_pool);
 		loc_thunk_map_empty(&sublines.map[0]);
 		loc_thunk_map_empty(&comp->lines.map[0]);
+		sublines.line = 0;
 		sublines.changed = 0;
+		comp->lines.line = 0;
 		comp->lines.changed = 0;
 		correct_offsets(comp, &sublines, comp->ir);
 	}
