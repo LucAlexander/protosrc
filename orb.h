@@ -225,8 +225,9 @@ typedef struct loc_thunk {
 	loc_thunk* next;
 	token label; // pending + fulfilled label
 	word line; // fulfilled line
+	word jump_line; // pending line
 	code_tree* jump; // pending jump
-	void (*f)(code_tree* jump, word line);
+	byte (*f)(code_tree* jump, word jumpline, word line);
 	THUNK_MEMBER type;
 } loc_thunk;
 
@@ -237,10 +238,13 @@ typedef struct ltms {
 	word line; // current line of generated code in pass
 	byte size;
 	byte capacity;
+	byte changed;
 } ltms;
 
+byte replace_call_arg(code_tree* jump, word jumpline, word line);
+byte replace_call_dest(code_tree* jump, word jumpline, word line);
 byte loc_thunk_add_member(ltms* const stack, token t, code_tree* member);
-void loc_thunk_check_member(ltms* const stack, token t, void(*f)(code_tree*, word), code_tree** ref);
+void loc_thunk_check_member(ltms* const stack, token t, byte(*f)(code_tree*, word, word), code_tree** ref);
 void ltms_push(ltms* stack);
 void ltms_pop(ltts* stack);
 

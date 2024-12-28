@@ -1280,9 +1280,9 @@ word parse_instruction_block(compiler* const comp, bsms* const sublabels, word t
 				}
 				code->type = triggered;
 				code->code.instruction_count = 1;
-				code->code.instructions = pool_request(comp->code, 4);
+				code->code.instructions = pool_request(comp->code, 4*5);
 				code->code.instructions[0] = opc;
-				code->code.instructions[1] = 0;//TODO mode?
+				code->code.instructions[1] = 0;
 				code->code.instructions[2] = 0;
 				code->code.instructions[3] = 0;
 				code->dest = t;
@@ -1590,7 +1590,9 @@ byte parse_tokens(compiler* const comp){
 	};
 	sublabels.map[0] = block_scope_map_init(&sublabel_pool);
 	parse_code(comp, &sublabels, token_index, comp->ir, NONE_TOKEN);
+	remaining_labels(comp, &sublabels.map[sublabels.size-1]);
 	pool_dealloc(&sublabel_pool);
+	ASSERT_ERR(0);
 	remaining_labels(comp, &comp->labels.map[comp->labels.size-1]);
 	ASSERT_ERR(0);
 	return 0;
@@ -2042,7 +2044,7 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 		case LABEL_ARG:
 		case SUBLABEL_ARG:
 			pool_request(comp->code, 4*5);
-			basic_block->code.instructions[instruction_index++] = LDS; // TODO note this needs to be tracked and replaced
+			basic_block->code.instructions[instruction_index++] = LDS;
 			basic_block->code.instructions[instruction_index++] = REG(L16, AR);
 			basic_block->code.instructions[instruction_index++] = 0xDE;
 			basic_block->code.instructions[instruction_index++] = 0x57;
@@ -2065,6 +2067,12 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 			basic_block->code.instruction_count += 5;
 			comp->lines.line += 5;
 			sublines->lines.line += 5;
+			if (call->type == LABEL_ARG){
+				loc_thunk_check_member(&comp->lines, basic_block->dest, replace_call_arg, basic_block);
+			}
+			else if (call->type == SUBLABEL_ARG){
+				loc_thunk_check_member(sublines, basic_block->dest, replace_call_arg, basic_block);
+			}
 			break;
 		case NUMERIC_ARG:
 			pool_request(comp->code, 4);
@@ -2084,14 +2092,14 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 	new_block->labeling = NOT_LABELED;
 	new_block->next = basic_block->next;
 	basic_block->next = new_block;
-	new_block->code.instructions = pool_request(comp->code, 4);
+	new_block->code.instructions = pool_request(comp->code, 4*5);
 	new_block->code.instruction_count = 1;
 	comp->lines.line += 1;
 	sublines->lines.line += 1;
 	instruction_index = 0;
 	if (function == NULL){
 		new_block->code.instructions[instruction_index++] = BNC;
-		new_block->code.instructions[instruction_index++] = 2; //TODO mode
+		new_block->code.instructions[instruction_index++] = 2;
 		new_block->code.instructions[instruction_index++] = 0;
 		new_block->code.instructions[instruction_index++] = REG(FULL, LR);
 		return new_block;
@@ -2099,7 +2107,7 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 	switch (function->type){
 	case REG_ARG:
 		new_block->code.instructions[instruction_index++] = BNC;
-		new_block->code.instructions[instruction_index++] = 2; //TODO mode
+		new_block->code.instructions[instruction_index++] = 2;
 		new_block->code.instructions[instruction_index++] = 0;
 		new_block->code.instructions[instruction_index++] = function->data.reg;
 		return new_block;
@@ -2107,20 +2115,20 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 		new_block->dest = function->data.labeling.label;
 		new_block->dest_block = function->data.labeling.dest_block;
 		new_block->code.instructions[instruction_index++] = BNC;
-		new_block->code.instructions[instruction_index++] = 2; //TODO mode
+		new_block->code.instructions[instruction_index++] = 2;
 		new_block->code.instructions[instruction_index++] = 0;
 		new_block->code.instructions[instruction_index++] = 0;
-		//TODO branch note this may need to be tracked an replaced
+		loc_thunk_check_member(&comp->lines, new_block->dest, replace_call_dest, new_block);
 		return new_block;
 	case SUBLABEL_ARG:
 		new_block->type = INSTRUCTION_SUBJUMP;
 		new_block->dest = function->data.labeling.label;
 		new_block->dest_block = function->data.labeling.dest_block;
 		new_block->code.instructions[instruction_index++] = BNC;
-		new_block->code.instructions[instruction_index++] = 2; //TODO mode
+		new_block->code.instructions[instruction_index++] = 2;
 		new_block->code.instructions[instruction_index++] = 0;
 		new_block->code.instructions[instruction_index++] = 0;
-		//TODO branch note this may need to be tracked an replaced
+		loc_thunk_check_member(sublines, new_block->dest, replace_call_dest, new_block);
 		return new_block;
 	case NUMERIC_ARG:
 		new_block->code.instructions[instruction_index++] = BNC;
@@ -2134,9 +2142,123 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 	return new_block;
 }
 
-byte pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_block){
+byte replace_call_arg(code_tree* jump, word jumpline, word line){
+	word index = 2;
+	basic_block->code.instructions[index++] = (line & 0xFF00000000000000) >> 0x38;
+	basic_block->code.instructions[index++] = (line & 0xFF000000000000) >> 0x30;
+	index += 2;
+	basic_block->code.instructions[index++] = (line & 0xFF0000000000) >> 0x28;
+	basic_block->code.instructions[index++] = (line & 0xFF00000000) >> 20;
+	index += 2;
+	basic_block->code.instructions[index++] = (line & 0xFF000000) >> 0x18;
+	basic_block->code.instructions[index++] = (line & 0xFF0000) >> 0x10;
+	index += 2;
+	basic_block->code.instructions[index++] = (line & 0xFF00) >> 0x8;
+	basic_block->code.instructions[index++] = (line & 0xFF);
+	return 0;
+}
+
+byte replace_call_dest(code_tree* jump, word jumpline, word line){
+	word offset = 0;
+	byte neg = 0;
+	if (jumpline > line){
+		offset = jumpline - line;
+		neg = 1;
+	}
+	else {
+		offset = line - jumpline;
+	}
+	word index = 0;
+	byte opc = jump->code.instructions[0];
+	byte changed = 0;
+	if (offset <= 0x7FFF){
+		if (jump->code.instruction_count > 1){
+			opc = jump->code.instructions[4*4];
+			jump->code.instruction_count = 1;
+			changed = 1;
+		}
+		jump->code.instructions[index] = opc;
+		jump->code.instructions[index+1] = 1;
+		if (neg == 1){
+			int16_t temp = offset;
+			temp *= -1;
+			jump->code.instructions[index+2] = (temp & 0xFF00) >> 8;
+			jump->code.instructions[index+3] = (temp & 0xFF);
+		}
+		else{
+			jump->code.instructions[index+2] = (offset & 0xFF00) >> 8;
+			jump->code.instructions[index+3] = (offset & 0xFF);
+		}
+		return changed;
+	}
+	if (jump->code.instruction_count == 1){
+		jump->code.instruction_count = 5;
+		changed = 1;
+	}
+	else{
+		opc = jump->code.instructions[4*4];
+	}
+	if (offset <= 0x7FFFFFFFFFFFFFFF){
+		if (neg == 1){
+			int64_t temp = offset;
+			temp *= -1;
+			offset = *(word*)(&temp);
+		}
+		jump->code.instructions[index++] = LDS;
+		jump->code.instructions[index++] = REG(L16, AR);
+		jump->code.instructions[index++] = (offset & 0xFF00000000000000) >> 0x38;
+		jump->code.instructions[index++] = (offset & 0xFF000000000000) >> 0x30;
+		jump->code.instructions[index++] = LDS;
+		jump->code.instructions[index++] = REG(LM16, AR);
+		jump->code.instructions[index++] = (offset & 0xFF0000000000) >> 0x28;
+		jump->code.instructions[index++] = (offset & 0xFF00000000) >> 0x20;
+		jump->code.instructions[index++] = LDS;
+		jump->code.instructions[index++] = REG(RM16, AR);
+		jump->code.instructions[index++] = (offset & 0xFF000000) >> 0x18;
+		jump->code.instructions[index++] = (offset & 0xFF0000) >> 0x10;
+		jump->code.instructions[index++] = LDS;
+		jump->code.instructions[index++] = REG(R16, AR);
+		jump->code.instructions[index++] = (offset & 0xFF00) >> 8;
+		jump->code.instructions[index++] = (offset & 0xFF);
+		jump->code.instructions[index] = opc;
+		jump->code.instructions[index+1] = 0;
+	}
+	else{
+		jump->code.instructions[index++] = LDS;
+		jump->code.instructions[index++] = REG(L16, AR);
+		jump->code.instructions[index++] = (line & 0xFF00000000000000) >> 0x38;
+		jump->code.instructions[index++] = (line & 0xFF000000000000) >> 0x30;
+		jump->code.instructions[index++] = LDS;
+		jump->code.instructions[index++] = REG(LM16, AR);
+		jump->code.instructions[index++] = (line & 0xFF0000000000) >> 0x28;
+		jump->code.instructions[index++] = (line & 0xFF00000000) >> 0x20;
+		jump->code.instructions[index++] = LDS;
+		jump->code.instructions[index++] = REG(RM16, AR);
+		jump->code.instructions[index++] = (line & 0xFF000000) >> 0x18;
+		jump->code.instructions[index++] = (line & 0xFF0000) >> 0x10;
+		jump->code.instructions[index++] = LDS;
+		jump->code.instructions[index++] = REG(R16, AR);
+		jump->code.instructions[index++] = (line & 0xFF00) >> 8;
+		jump->code.instructions[index++] = (line & 0xFF);
+		jump->code.instructions[index] = opc;
+		jump->code.instructions[index+1] = 2;
+	}
+	jump->code.instructions[index+2] = 0;
+	jump->code.instructions[index+3] = REG(FULL, AR);
+	return changed;
+}
+
+void pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_block){
 	while (basic_block != NULL){
 		if (basic_block->labeling == LABELED){
+			if (sublines->changed == 1){
+				lines->changed = 1;
+			}
+			line_thunk_map* subthunk = &sublines->map[sublines->size-1];
+			if (sublines->size == 1){
+				pool_empty(subthunk);
+			}
+			line_thunk_map_empty(subthunk);
 			loc_thunk_add_member(&comp->lines, basic_block->label);
 		}
 		else if (basic_block->labeling == SUBLABELED){
@@ -2153,15 +2275,21 @@ byte pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_bl
 			pregen_call(comp, sublines, basic_block, basic_block->data.call);
 		}
 		else {
-			if (basic_block->type == INSTRUCTION_JUMP || basic_block->type == INSTRUCTION_SUBJUMP){
-				// TODO check member
+			if (basic_block->type == INSTRUCTION_JUMP){
+				loc_thunk_check_member(&comp->lines, basic_block->dest, replace_call_dest, basic_block);
+			}
+			else if (basic_blcok->type == INSTRUCTION_SUBJUMP){
+				loc_thunk_check_member(sublines, basic_block->dest, replace_normal_dest, basic_block);
 			}
 			comp->lines.line += basic_block->code.instruction_count;
 			sublines->lines.line += basic_block->code.instruction_count;
 		}
 		basic_block = basic_block->next;
 	}
-	return 0;
+}
+
+void correct_offsets(compiler* const comp, ltms* const sublines, code_tree* basic_block){
+	//TODO
 }
 
 byte loc_thunk_add_member(ltms* const stack, token t){
@@ -2177,7 +2305,7 @@ byte loc_thunk_add_member(ltms* const stack, token t){
 		}
 		node->type = FULFILLED_MEMBER;
 		while (node != NULL){
-			node->f(node->jump, stack->line);
+			stack->changed |= node->f(node->jump, node->jumpline, stack->line);
 			node = node->next;
 		}
 		return 0;
@@ -2194,7 +2322,7 @@ byte loc_thunk_add_member(ltms* const stack, token t){
 	return 0;
 }
 
-void loc_thunk_check_member(ltms* const stack, token t, void(*f)(code_tree*, word), code_tree* member){
+void loc_thunk_check_member(ltms* const stack, token t, byte(*f)(code_tree*, word, word), code_tree* member){
 	loc_thunk_map* thunk = stack->map[stack->size-1];
 	char* name = t.text;
 	word size = t.size;
@@ -2204,7 +2332,7 @@ void loc_thunk_check_member(ltms* const stack, token t, void(*f)(code_tree*, wor
 	name[size] = save;
 	if (node != NULL){
 		if (node->type == FULFILLED_MEMBER){
-			f(member, node->line);
+			stack->changed |= f(member, stack->line, node->line);
 			return;
 		}
 		loc_thunk* temp = node->next;
@@ -2215,6 +2343,7 @@ void loc_thunk_check_member(ltms* const stack, token t, void(*f)(code_tree*, wor
 		node->jump = member;
 		node->label = t;
 		node->line = 0;
+		node->jumpline = stack->line;
 		node->f = f;
 		return;
 	}
@@ -2224,6 +2353,7 @@ void loc_thunk_check_member(ltms* const stack, token t, void(*f)(code_tree*, wor
 	node->next = NULL;
 	node->label = t;
 	node->line = 0;
+	node->jumpline = stack->line;
 	node->f = f;
 	char* new_name = pool_request(thunk->mem, size);
 	strncpy(new_name, name, size);
@@ -2256,16 +2386,27 @@ byte backpass(compiler* const comp){
 		comp->lines->line = 0;
 		comp->lines.size = 1;
 		comp->lines.capacity = PUSH_LABEL_SCOPE_LIMIT;
+		comp->lines.changed = 0;
 	}
 	pool subline_pool = pool_alloc(AUX_SIZE, POOL_STATIC);
 	ltms sublines = {
 		.map = pool_request(comp->mem, sizeof(loc_thunk_map)*PUSH_LABEL_SCOPE_LIMIT),
 		.line = 0,
 		.size = 1,
-		.capacity = PUSH_LABEL_SCOPE_LIMIT
+		.capacity = PUSH_LABEL_SCOPE_LIMIT,
+		.changed = 0
 	};
 	sublines.map[0] = loc_thunk_map_init(&subline_pool);
 	pregenerate(comp, &sublines, comp->ir);
+	ASSERT_LOCAL(comp->lines.size == 1 && sublines.size == 1, " loc_thunk_map stack corrupted\n");
+	while (comp->lines.changed == 1 || sublines.changed == 1){
+		pool_empty(subline_pool);
+		loc_thunk_map_empty(&sublines.map[0]);
+		loc_thunk_map_empty(&comp->lines.map[0]);
+		sublines.changed = 0;
+		comp->lines.changed = 0;
+		correct_offsets(comp, &sublines, comp->ir);
+	}
 	pool_dealloc(&subline_pool);
 	return 0;
 }
