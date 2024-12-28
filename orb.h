@@ -250,7 +250,6 @@ void ltms_pop(ltms* stack);
 
 typedef struct {
 	string str;
-	string buf;
 	OPCODE_map opmap;
 	REGISTER_map regmap;
 	REG_PARTITION_map partmap;
@@ -261,6 +260,7 @@ typedef struct {
 	ltms lines;
 	pool* mem;
 	pool* code;
+	byte* buf;
 	char* err;
 } compiler;
 

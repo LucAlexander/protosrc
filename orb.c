@@ -2451,9 +2451,23 @@ byte backpass(compiler* const comp){
 		correct_offsets(comp, &sublines, comp->ir);
 	}
 	pool_dealloc(&subline_pool);
+	comp->buf = pool_request(comp->mem, 4*comp->lines.line[0]);
 	return 0;
 }
 
+void generate_code(compiler* const comp){
+	word i = 0;
+	code_tree* block = comp->ir;
+	while (block != NULL){
+		word n = block->code.instruction_count*4;
+		for (word k = 0;k<n;++k){
+			comp->buf[i++] = block->code.instructions[k];
+		}
+		block = block->next;
+	}
+}
+
+//TODO macro blocks
 //TODO allow 4 byte and 8 byte tokens for pushes and arguments
 byte compile_cstr(compiler* const comp){
 	lex_cstr(comp);
@@ -2474,6 +2488,7 @@ byte compile_cstr(compiler* const comp){
 	show_block(comp, comp->ir, 0);
 	printf("\033[1;42mDONE\033[0m\n");
 #endif
+	generate_code(comp);
 	return 0;
 }
 
@@ -2502,13 +2517,6 @@ void compile_file(char* infile, char* outfile){
 		fprintf(stderr, "Unable to allocate read buffer\n");
 		return;
 	}
-	string buf = {.size=WRITE_BUFFER_SIZE, .i=0};
-	buf.text = pool_request(&mem, WRITE_BUFFER_SIZE);
-	if (buf.text == NULL){
-		fprintf(stderr, "Unable to allocate write buffer\n");
-		pool_dealloc(&mem);
-		return;
-	}
 	OPCODE_map opmap = OPCODE_map_init(&mem);
 	REGISTER_map regmap = REGISTER_map_init(&mem);
 	REG_PARTITION_map partmap = REG_PARTITION_map_init(&mem);
@@ -2518,12 +2526,12 @@ void compile_file(char* infile, char* outfile){
 	pool code = pool_alloc(WRITE_BUFFER_SIZE, POOL_STATIC);
 	compiler comp = {
 		.str = str,
-		.buf = buf,
 		.opmap = opmap,
 		.regmap = regmap,
 		.partmap = partmap,
 		.mem = &mem,
 		.code = &code,
+		.buf = NULL,
 		.err = pool_request(&mem, ERROR_BUFFER)
 	};
 	*comp.err = 0;
@@ -2543,7 +2551,10 @@ void compile_file(char* infile, char* outfile){
 		pool_dealloc(&code);
 		return;
 	}
-	fwrite(comp.buf.text, 1, comp.buf.i, fd);
+	word bytes = 4*comp.lines.line[0];
+	if (fwrite(comp.buf, 1, bytes, fd) < bytes){
+		fprintf(stderr, "Unable to write to output file\n");
+	}
 	fclose(fd);
 	pool_dealloc(&mem);
 	pool_dealloc(&code);
@@ -2650,8 +2661,8 @@ void run_rom(char* filename){
 }
 
 int32_t main(int argc, char** argv){
-	compile_file("full_syntax.src", "full_syntax.rom");
-	return 0;
+	//compile_file("full_syntax.src", "full_syntax.rom");
+	//return 0;
 	if (argc <= 1){
 		printf(" -h for help\n");
 		return 0;
