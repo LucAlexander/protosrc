@@ -5,7 +5,7 @@
 #include "string.h"
 #include "hashmap.h"
 
-#define ORB_DEBUG
+//#define ORB_DEBUG
 
 #define READ_BUFFER_SIZE 0x10000000
 #define WRITE_BUFFER_SIZE 0x10000000
@@ -37,7 +37,7 @@ typedef enum {
 	POP,
 	BNC, BNE, BEQ, BLT, BGT, BLE, BGE,
 	JMP, JNE, JEQ, JLT, JGT, JLE, JGE,
-	INT, INR,
+	EXT, EXR,
 	OPCODE_COUNT
 } OPCODE;
 

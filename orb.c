@@ -84,8 +84,8 @@ MAP_IMPL(loc_thunk)
 #define JGT_(mode, off)        JGT, mode, SHORT(off)
 #define JLE_(mode, off)        JLE, mode, SHORT(off)
 #define JGE_(mode, off)        JGE, mode, SHORT(off)
-#define INT_(b)                INT, b,    0, 0
-#define INR_(en)               INR, en,   0, 0
+#define EXT_(b)                EXT, b,    0, 0
+#define EXR_(en)               EXR, en,   0, 0
 
 #define REG(p, r) (p<<4 | r)
 
@@ -682,8 +682,8 @@ void interpret(machine* const mach){
 				}
 				else { mach->reg[IP] += 1; }
 			} break;
-		case INT: { mach->reg[IP] += 1; } break;
-		case INR: { mach->reg[IP] += 1; } break;
+		case EXT: { mach->reg[IP] += 1; } break;
+		case EXR: { mach->reg[IP] += 1; } break;
 		default:
 			printf("Unknown upcode\n");
 			return;
@@ -773,8 +773,8 @@ void setup_opcode_map(OPCODE_map* opmap){
 	OPCODE_map_insert(opmap, "JGT", ops++);
 	OPCODE_map_insert(opmap, "JLE", ops++);
 	OPCODE_map_insert(opmap, "JGE", ops++);
-	OPCODE_map_insert(opmap, "INT", ops++);
-	OPCODE_map_insert(opmap, "INR", ops++);
+	OPCODE_map_insert(opmap, "EXT", ops++);
+	OPCODE_map_insert(opmap, "EXR", ops++);
 }
 
 void setup_register_map(REGISTER_map* regmap){
@@ -1349,7 +1349,7 @@ word parse_instruction_block(compiler* const comp, bsms* const sublabels, word t
 				ASSERT_ERR(0);
 				break;
 			case INI: case COI: case RET: case PSH:
-			case POP: case INR:
+			case POP: case EXR:
 				byte r = 0;
 				token_index = parse_register(comp, token_index, &r);
 				ASSERT_ERR(0);
@@ -1367,7 +1367,7 @@ word parse_instruction_block(compiler* const comp, bsms* const sublabels, word t
 				code->code.instructions[instruction_index+2] = (s.data.number & 0xFF);
 				code->code.instructions[instruction_index+3] = 0;
 				break;
-			case INT:
+			case EXT:
 				token b = comp->tokens[token_index];
 				ASSERT_LOCAL(b.type == BYTE_HEX_NUMERIC_TOKEN, PARSERR " Expected byte literal" PARSERRFIX, b.text);
 				token_index += 1;
@@ -2237,19 +2237,19 @@ byte replace_call_dest(code_tree* jump, word jumpline, word line){
 			offset = *(word*)(&temp);
 		}
 		jump->code.instructions[index++] = LDS;
-		jump->code.instructions[index++] = REG(L16, AR);
+		jump->code.instructions[index++] = REG(L16, LR);
 		jump->code.instructions[index++] = (offset & 0xFF00000000000000) >> 0x38;
 		jump->code.instructions[index++] = (offset & 0xFF000000000000) >> 0x30;
 		jump->code.instructions[index++] = LDS;
-		jump->code.instructions[index++] = REG(LM16, AR);
+		jump->code.instructions[index++] = REG(LM16, LR);
 		jump->code.instructions[index++] = (offset & 0xFF0000000000) >> 0x28;
 		jump->code.instructions[index++] = (offset & 0xFF00000000) >> 0x20;
 		jump->code.instructions[index++] = LDS;
-		jump->code.instructions[index++] = REG(RM16, AR);
+		jump->code.instructions[index++] = REG(RM16, LR);
 		jump->code.instructions[index++] = (offset & 0xFF000000) >> 0x18;
 		jump->code.instructions[index++] = (offset & 0xFF0000) >> 0x10;
 		jump->code.instructions[index++] = LDS;
-		jump->code.instructions[index++] = REG(R16, AR);
+		jump->code.instructions[index++] = REG(R16, LR);
 		jump->code.instructions[index++] = (offset & 0xFF00) >> 8;
 		jump->code.instructions[index++] = (offset & 0xFF);
 		jump->code.instructions[index] = opc;
@@ -2257,26 +2257,26 @@ byte replace_call_dest(code_tree* jump, word jumpline, word line){
 	}
 	else{
 		jump->code.instructions[index++] = LDS;
-		jump->code.instructions[index++] = REG(L16, AR);
+		jump->code.instructions[index++] = REG(L16, LR);
 		jump->code.instructions[index++] = (line & 0xFF00000000000000) >> 0x38;
 		jump->code.instructions[index++] = (line & 0xFF000000000000) >> 0x30;
 		jump->code.instructions[index++] = LDS;
-		jump->code.instructions[index++] = REG(LM16, AR);
+		jump->code.instructions[index++] = REG(LM16, LR);
 		jump->code.instructions[index++] = (line & 0xFF0000000000) >> 0x28;
 		jump->code.instructions[index++] = (line & 0xFF00000000) >> 0x20;
 		jump->code.instructions[index++] = LDS;
-		jump->code.instructions[index++] = REG(RM16, AR);
+		jump->code.instructions[index++] = REG(RM16, LR);
 		jump->code.instructions[index++] = (line & 0xFF000000) >> 0x18;
 		jump->code.instructions[index++] = (line & 0xFF0000) >> 0x10;
 		jump->code.instructions[index++] = LDS;
-		jump->code.instructions[index++] = REG(R16, AR);
+		jump->code.instructions[index++] = REG(R16, LR);
 		jump->code.instructions[index++] = (line & 0xFF00) >> 8;
 		jump->code.instructions[index++] = (line & 0xFF);
 		jump->code.instructions[index] = opc;
 		jump->code.instructions[index+1] = 2;
 	}
 	jump->code.instructions[index+2] = 0;
-	jump->code.instructions[index+3] = REG(FULL, AR);
+	jump->code.instructions[index+3] = REG(FULL, LR);
 	return changed;
 }
 
