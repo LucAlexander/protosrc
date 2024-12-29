@@ -894,7 +894,7 @@ byte lex_cstr(compiler* const comp){
 			t->size += 1;
 			int64_t number = 0;
 			byte index = 0;
-			while (comp->str.i < comp->str.size && index < 4){
+			while (comp->str.i < comp->str.size && index < 16){
 				c = comp->str.text[comp->str.i];
 				byte converted = 0;
 				if (c >= '0' && c <= '9'){
@@ -926,12 +926,30 @@ byte lex_cstr(compiler* const comp){
 			else if (index <= sizeof(uint16_t)*2){
 				t->type = SHORT_HEX_NUMERIC_TOKEN;
 				if (negative == 1){
-					ASSERT_LOCAL(number <= 32767, LEXERR " Too many bytes provided for negative short numeric\n", line);
+					if (number > 32767){
+						t->type = DWORD_HEX_NUMERIC_TOKEN;
+					}
+					number *= -1;
+				}
+			}
+			else if (index <= sizeof(uint32_t)*2){
+				t->type = DWORD_HEX_NUMERIC_TOKEN;
+				if (negative == 1){
+					if (number > 0x7FFFFFFF){
+						t->type = QWORD_HEX_NUMERIC_TOKEN;
+					}
+					number *= -1;
+				}
+			}
+			else if (index <= sizeof(word)*2){
+				t->type = QWORD_HEX_NUMERIC_TOKEN;
+				if (negative == 1){
+					ASSERT_LOCAL(number <= 0x7FFFFFFFFFFFFFFF, LEXERR " Too many bytes provided for negative numeric\n", line);
 					number *= -1;
 				}
 			}
 			else{
-				ASSERT_LOCAL(0, LEXERR " Too many bytes provided for short hex numeric\n", line);
+				ASSERT_LOCAL(0, LEXERR " Too many bytes provided for hex numeric\n", line);
 			}
 			t->data.number = number;
 			pool_request(comp->mem, sizeof(token));
@@ -1092,7 +1110,13 @@ word parse_byte_sequence(compiler* const comp, word token_index, data_tree* data
 	word initial_index = token_index;
 	while (token_index < comp->token_count){
 		token t = comp->tokens[token_index];
-		if (t.type == SHORT_HEX_NUMERIC_TOKEN){
+		if (t.type == QWORD_HEX_NUMERIC_TOKEN){
+			data->data.bytes.size += 8;
+		}
+		else if (t.type == DWORD_HEX_NUMERIC_TOKEN){
+			data->data.bytes.size += 4;
+		}
+		else if (t.type == SHORT_HEX_NUMERIC_TOKEN){
 			data->data.bytes.size += 2;
 		}
 		else if (t.type == BYTE_HEX_NUMERIC_TOKEN){
@@ -1108,12 +1132,23 @@ word parse_byte_sequence(compiler* const comp, word token_index, data_tree* data
 	for (word i = initial_index;i<token_index;++i){
 		token t = comp->tokens[i];
 		switch (t.type){
+		case QWORD_HEX_NUMERIC_TOKEN:
+			data->data.bytes.raw[index] = (t.data.number & 0xFF00000000000000) >> 0x38;
+			index += 1;
+			data->data.bytes.raw[index] = (t.data.number & 0xFF000000000000) >> 0x30;
+			index += 1;
+			data->data.bytes.raw[index] = (t.data.number & 0xFF0000000000) >> 0x28;
+			index += 1;
+			data->data.bytes.raw[index] = (t.data.number & 0xFF00000000) >> 0x20;
+			index += 1;
+		case DWORD_HEX_NUMERIC_TOKEN:
+			data->data.bytes.raw[index] = (t.data.number & 0xFF000000) >> 0x18;
+			index += 1;
+			data->data.bytes.raw[index] = (t.data.number & 0xFF0000) >> 0x10;
+			index += 1;
 		case SHORT_HEX_NUMERIC_TOKEN:
-			data->data.bytes.raw[index] = (t.data.number & 0xFF00) >> 8;
+			data->data.bytes.raw[index] = (t.data.number & 0xFF00) >> 0x8;
 			index += 1;
-			data->data.bytes.raw[index] = (t.data.number & 0xFF);
-			index += 1;
-			continue;
 		case BYTE_HEX_NUMERIC_TOKEN:
 			data->data.bytes.raw[index] = (t.data.number & 0xFF);
 			index += 1;
@@ -1131,6 +1166,8 @@ word parse_push_block(compiler* const comp, bsms* const sublabels, word token_in
 		token t = comp->tokens[token_index];
 		token_index += 1;
 		switch (t.type){
+		case QWORD_HEX_NUMERIC_TOKEN:
+		case DWORD_HEX_NUMERIC_TOKEN:
 		case SHORT_HEX_NUMERIC_TOKEN:
 		case BYTE_HEX_NUMERIC_TOKEN:
 			data->type = BYTE_DATA;
@@ -1838,6 +1875,12 @@ void show_tokens(compiler* const comp){
 		case BYTE_HEX_NUMERIC_TOKEN:
 			printf("BYTE ");
 			break;
+		case DWORD_HEX_NUMERIC_TOKEN:
+			printf("D WORD: ");
+			break;
+		case QWORD_HEX_NUMERIC_TOKEN:
+			printf("Q WORD: ");
+			break;
 		case IDENTIFIER_TOKEN:
 			printf("IDENTIFIER ");
 			break;
@@ -2491,6 +2534,9 @@ void generate_code(compiler* const comp){
 
 //TODO macro blocks
 //TODO allow 4 byte and 8 byte tokens for pushes and arguments
+//TODO string literals
+//TODO implement builtin external calls
+//TODO optimization pass
 byte compile_cstr(compiler* const comp){
 	lex_cstr(comp);
 	ASSERT_ERR(0);
