@@ -881,6 +881,24 @@ byte lex_cstr(compiler* const comp){
 			pool_request(comp->mem, sizeof(token));
 			comp->token_count += 1;
 			continue;
+		case STRING_TOKEN:
+			t->type = c;
+			t->text = &comp->str.text[comp->str.i];
+			t->size = 0;
+			while (comp->str.i < comp->str.size){
+				c = comp->str.text[comp->str.i];
+				comp->str.i += 1;
+				if (c == '\n'){
+					line += 1;
+				}
+				else if (c == STRING_TOKEN){
+					break;
+				}
+				t->size += 1;
+			}
+			pool_request(comp->mem, sizeof(token));
+			comp->token_count += 1;
+			continue;
 		case '-':
 			c = comp->str.text[comp->str.i];
 			ASSERT_LOCAL(c=='0', LEXERR " Expected numeric after '-'\n", line);
@@ -1017,6 +1035,16 @@ word parse_register(compiler* const comp, word token_index, byte* r){
 	return token_index;
 }
 
+void parse_string_bytes(compiler* const comp, word token_index, data_tree* data){
+	data->type = BYTE_DATA;
+	token t = comp->tokens[token_index];
+	data->data.bytes.raw = pool_request(comp->mem, t.size);
+	data->data.bytes.size = t.size;
+	for (word i = 0;i<t.size;++i){
+		data->data.bytes.raw[i] = t.text[i];
+	}
+}
+
 word parse_call_block(compiler* const comp, bsms* const sublabels, word token_index, call_tree* data){
 	call_tree* last = data;
 	while (token_index < comp->token_count){
@@ -1038,6 +1066,16 @@ word parse_call_block(compiler* const comp, bsms* const sublabels, word token_in
 			data->data.push->next = NULL;
 			token_index = parse_push_block(comp, sublabels, token_index, data->data.push);
 			ASSERT_ERR(0);
+			data->next = pool_request(comp->mem, sizeof(call_tree));
+			last = data;
+			data = data->next;
+			data->next = NULL;
+			continue;
+		case STRING_TOKEN:
+			data->type = PUSH_ARG;
+			data->data.push = pool_request(comp->mem, sizeof(data_tree));
+			data->data.push->next = NULL;
+			parse_string_bytes(comp, token_index-1, data->data.push);
 			data->next = pool_request(comp->mem, sizeof(call_tree));
 			last = data;
 			data = data->next;
@@ -1182,6 +1220,13 @@ word parse_push_block(compiler* const comp, bsms* const sublabels, word token_in
 			data->data.nest = pool_request(comp->mem, sizeof(data_tree));
 			token_index = parse_push_block(comp, sublabels, token_index, data->data.nest);
 			ASSERT_ERR(0);
+			data->next = pool_request(comp->mem, sizeof(data_tree));
+			last = data;
+			data = data->next;
+			data->next = NULL;
+			continue;
+		case STRING_TOKEN:
+			parse_string_bytes(comp, token_index-1, data);
 			data->next = pool_request(comp->mem, sizeof(data_tree));
 			last = data;
 			data = data->next;
@@ -1473,6 +1518,17 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 			ir->data.push->next = NULL;
 			token_index = parse_push_block(comp, sublabels, token_index, ir->data.push);
 			ASSERT_ERR(0);
+			ir->next = pool_request(comp->mem, sizeof(code_tree));
+			last = ir;
+			ir = ir->next;
+			ir->labeling = NOT_LABELED;
+			ir->next = NULL;
+			continue;
+		case STRING_TOKEN:
+			ir->type = PUSH_BLOCK;
+			ir->data.push = pool_request(comp->mem, sizeof(data_tree));
+			ir->data.push->next = NULL;
+			parse_string_bytes(comp, token_index-1, ir->data.push);
 			ir->next = pool_request(comp->mem, sizeof(code_tree));
 			last = ir;
 			ir = ir->next;
@@ -1863,6 +1919,9 @@ void show_tokens(compiler* const comp){
 		case CLOSE_PUSH_TOKEN:
 			printf("CLOSE PUSH ");
 			break;
+		case STRING_TOKEN:
+			printf("STRING ");
+			break;
 		case SUBLABEL_TOKEN:
 			printf("SUBLABEL ");
 			break;
@@ -1876,10 +1935,10 @@ void show_tokens(compiler* const comp){
 			printf("BYTE ");
 			break;
 		case DWORD_HEX_NUMERIC_TOKEN:
-			printf("D WORD: ");
+			printf("D WORD ");
 			break;
 		case QWORD_HEX_NUMERIC_TOKEN:
-			printf("Q WORD: ");
+			printf("Q WORD ");
 			break;
 		case IDENTIFIER_TOKEN:
 			printf("IDENTIFIER ");
@@ -1936,34 +1995,36 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 				comp->lines.line[comp->lines.size-1] += 5;
 				sublines->line[sublines->size-1] += 5;
 			}
-			byte line[8] = {0};
-			for (word i = 7-remainder;i<8;++i){
-				line[i] = push->data.bytes.raw[under_round+i];
+			if (remainder != 0){
+				byte line[8] = {0};
+				for (word i = 0;i<remainder;++i){
+					line[i] = push->data.bytes.raw[under_round+i];
+				}
+				word index = 0;
+				basic_block->code.instructions[instruction_index++] = LDS;
+				basic_block->code.instructions[instruction_index++] = REG(L16, AR);
+				basic_block->code.instructions[instruction_index++] = line[index++];
+				basic_block->code.instructions[instruction_index++] = line[index++];
+				basic_block->code.instructions[instruction_index++] = LDS;
+				basic_block->code.instructions[instruction_index++] = REG(LM16, AR);
+				basic_block->code.instructions[instruction_index++] = line[index++];
+				basic_block->code.instructions[instruction_index++] = line[index++];
+				basic_block->code.instructions[instruction_index++] = LDS;
+				basic_block->code.instructions[instruction_index++] = REG(RM16, AR);
+				basic_block->code.instructions[instruction_index++] = line[index++];
+				basic_block->code.instructions[instruction_index++] = line[index++];
+				basic_block->code.instructions[instruction_index++] = LDS;
+				basic_block->code.instructions[instruction_index++] = REG(R16, AR);
+				basic_block->code.instructions[instruction_index++] = line[index++];
+				basic_block->code.instructions[instruction_index++] = line[index++];
+				basic_block->code.instructions[instruction_index++] = PSH;
+				basic_block->code.instructions[instruction_index++] = REG(FULL, AR);
+				basic_block->code.instructions[instruction_index++] = 0;
+				basic_block->code.instructions[instruction_index++] = 0;
+				basic_block->code.instruction_count += 5;
+				comp->lines.line[comp->lines.size-1] += 5;
+				sublines->line[sublines->size-1] += 5;
 			}
-			word index = 0;
-			basic_block->code.instructions[instruction_index++] = LDS;
-			basic_block->code.instructions[instruction_index++] = REG(L16, AR);
-			basic_block->code.instructions[instruction_index++] = line[index++];
-			basic_block->code.instructions[instruction_index++] = line[index++];
-			basic_block->code.instructions[instruction_index++] = LDS;
-			basic_block->code.instructions[instruction_index++] = REG(LM16, AR);
-			basic_block->code.instructions[instruction_index++] = line[index++];
-			basic_block->code.instructions[instruction_index++] = line[index++];
-			basic_block->code.instructions[instruction_index++] = LDS;
-			basic_block->code.instructions[instruction_index++] = REG(RM16, AR);
-			basic_block->code.instructions[instruction_index++] = line[index++];
-			basic_block->code.instructions[instruction_index++] = line[index++];
-			basic_block->code.instructions[instruction_index++] = LDS;
-			basic_block->code.instructions[instruction_index++] = REG(R16, AR);
-			basic_block->code.instructions[instruction_index++] = line[index++];
-			basic_block->code.instructions[instruction_index++] = line[index++];
-			basic_block->code.instructions[instruction_index++] = PSH;
-			basic_block->code.instructions[instruction_index++] = REG(FULL, AR);
-			basic_block->code.instructions[instruction_index++] = 0;
-			basic_block->code.instructions[instruction_index++] = 0;
-			basic_block->code.instruction_count += 5;
-			comp->lines.line[comp->lines.size-1] += 5;
-			sublines->line[sublines->size-1] += 5;
 			break;
 		case NEST_DATA:
 			basic_block = pregen_push(comp, sublines, basic_block, push->data.nest);
@@ -2533,7 +2594,6 @@ void generate_code(compiler* const comp){
 }
 
 //TODO macro blocks
-//TODO allow 4 byte and 8 byte tokens for pushes and arguments
 //TODO string literals
 //TODO implement builtin external calls
 //TODO optimization pass
@@ -2730,7 +2790,7 @@ void run_rom(char* filename){
 
 int32_t main(int argc, char** argv){
 #ifdef ORB_DEBUG
-	compile_file("demo.src", "demo.rom");
+	compile_file("full_syntax.src", "full_syntax.rom");
 	return 0;
 #endif
 	if (argc <= 1){
