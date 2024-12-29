@@ -1305,12 +1305,20 @@ word parse_instruction_block(compiler* const comp, bsms* const sublabels, word t
 				code->code.instructions[instruction_index+2] = (t.data.number & 0xFF00) >> 8;
 				code->code.instructions[instruction_index+3] = (t.data.number & 0xFF);
 				break;
+			case OPCODE_TOKEN:
+				code->code.instructions[instruction_index] = opc;
+				code->code.instructions[instruction_index+1] = 2;
+				code->code.instructions[instruction_index+2] = 0;
+				code->code.instructions[instruction_index+3] = REG(FULL, AR);
+				token_index -= 1;
+				break;
 			default:
 				code->code.instructions[instruction_index] = opc;
 				code->code.instructions[instruction_index+1] = 1;
 				code->code.instructions[instruction_index+2] = 0;
 				code->code.instructions[instruction_index+3] = 0;
 				token_index -= 1;
+				break;
 			}
 		}
 		else{
@@ -2079,10 +2087,10 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 			comp->lines.line[comp->lines.size-1] += 5;
 			sublines->line[sublines->size-1] += 5;
 			if (call->type == LABEL_ARG){
-				loc_thunk_check_member(&comp->lines, basic_block->dest, replace_call_arg, basic_block);
+				loc_thunk_check_member(&comp->lines, call->data.labeling.label, replace_call_arg, call->data.labeling.dest_block);
 			}
 			else if (call->type == SUBLABEL_ARG){
-				loc_thunk_check_member(sublines, basic_block->dest, replace_call_arg, basic_block);
+				loc_thunk_check_member(sublines, call->data.labeling.label, replace_call_arg, call->data.labeling.dest_block);
 			}
 			break;
 		case NUMERIC_ARG:
@@ -2113,44 +2121,52 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 		new_block->code.instructions[instruction_index++] = 2;
 		new_block->code.instructions[instruction_index++] = 0;
 		new_block->code.instructions[instruction_index++] = REG(FULL, LR);
-		return new_block;
 	}
-	switch (function->type){
-	case REG_ARG:
-		new_block->code.instructions[instruction_index++] = BNC;
-		new_block->code.instructions[instruction_index++] = 2;
-		new_block->code.instructions[instruction_index++] = 0;
-		new_block->code.instructions[instruction_index++] = function->data.reg;
-		return new_block;
-	case LABEL_ARG:
-		new_block->dest = function->data.labeling.label;
-		new_block->dest_block = function->data.labeling.dest_block;
-		new_block->code.instructions[instruction_index++] = BNC;
-		new_block->code.instructions[instruction_index++] = 2;
-		new_block->code.instructions[instruction_index++] = 0;
-		new_block->code.instructions[instruction_index++] = 0;
-		loc_thunk_check_member(&comp->lines, new_block->dest, replace_call_dest, new_block);
-		return new_block;
-	case SUBLABEL_ARG:
-		new_block->type = INSTRUCTION_SUBJUMP;
-		new_block->dest = function->data.labeling.label;
-		new_block->dest_block = function->data.labeling.dest_block;
-		new_block->code.instructions[instruction_index++] = BNC;
-		new_block->code.instructions[instruction_index++] = 2;
-		new_block->code.instructions[instruction_index++] = 0;
-		new_block->code.instructions[instruction_index++] = 0;
-		loc_thunk_check_member(sublines, new_block->dest, replace_call_dest, new_block);
-		return new_block;
-	case NUMERIC_ARG:
-		new_block->code.instructions[instruction_index++] = BNC;
-		new_block->code.instructions[instruction_index++] = 1;
-		new_block->code.instructions[instruction_index++] = (function->data.number & 0xFF00) >> 8;
-		new_block->code.instructions[instruction_index++] = (function->data.number & 0xFF);
-		return new_block;
-	case CALL_ARG:
-	case PUSH_ARG:
+	else{
+		switch (function->type){
+		case REG_ARG:
+			new_block->code.instructions[instruction_index++] = BNC;
+			new_block->code.instructions[instruction_index++] = 2;
+			new_block->code.instructions[instruction_index++] = 0;
+			new_block->code.instructions[instruction_index++] = function->data.reg;
+			break;
+		case LABEL_ARG:
+			new_block->dest = function->data.labeling.label;
+			new_block->dest_block = function->data.labeling.dest_block;
+			new_block->code.instructions[instruction_index++] = BNC;
+			new_block->code.instructions[instruction_index++] = 2;
+			new_block->code.instructions[instruction_index++] = 0;
+			new_block->code.instructions[instruction_index++] = 0;
+			loc_thunk_check_member(&comp->lines, new_block->dest, replace_call_dest, new_block);
+			break;
+		case SUBLABEL_ARG:
+			new_block->type = INSTRUCTION_SUBJUMP;
+			new_block->dest = function->data.labeling.label;
+			new_block->dest_block = function->data.labeling.dest_block;
+			new_block->code.instructions[instruction_index++] = BNC;
+			new_block->code.instructions[instruction_index++] = 2;
+			new_block->code.instructions[instruction_index++] = 0;
+			new_block->code.instructions[instruction_index++] = 0;
+			loc_thunk_check_member(sublines, new_block->dest, replace_call_dest, new_block);
+			break;
+		case NUMERIC_ARG:
+			new_block->code.instructions[instruction_index++] = BNC;
+			new_block->code.instructions[instruction_index++] = 1;
+			new_block->code.instructions[instruction_index++] = (function->data.number & 0xFF00) >> 8;
+			new_block->code.instructions[instruction_index++] = (function->data.number & 0xFF);
+			break;
+		case CALL_ARG:
+		case PUSH_ARG:
+		}
 	}
-	return new_block;
+	code_tree* next_block = pool_request(comp->mem, sizeof(code_tree));
+	next_block->type = INSTRUCTION_BLOCK;
+	next_block->labeling = NOT_LABELED;
+	next_block->next = new_block->next;
+	new_block->next = next_block;
+	next_block->code.instructions = pool_request(comp->code, 4);
+	next_block->code.instruction_count = 0;
+	return next_block;
 }
 
 byte replace_call_arg(code_tree* jump, word jumpline, word line){
@@ -2661,8 +2677,8 @@ void run_rom(char* filename){
 }
 
 int32_t main(int argc, char** argv){
-	//compile_file("full_syntax.src", "full_syntax.rom");
-	//return 0;
+	compile_file("full_syntax.src", "full_syntax.rom");
+	return 0;
 	if (argc <= 1){
 		printf(" -h for help\n");
 		return 0;
