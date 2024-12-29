@@ -2292,12 +2292,12 @@ void pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_bl
 		if (basic_block->type == PUSH_BLOCK){
 			basic_block->code.instructions = pool_request(comp->code, 4);
 			basic_block->code.instruction_count = 0;
-			pregen_push(comp, sublines, basic_block, basic_block->data.push);
+			basic_block = pregen_push(comp, sublines, basic_block, basic_block->data.push);
 		}
 		else if (basic_block->type == CALL_BLOCK){
 			basic_block->code.instructions = pool_request(comp->code, 4);
 			basic_block->code.instruction_count = 0;
-			pregen_call(comp, sublines, basic_block, basic_block->data.call);
+			basic_block = pregen_call(comp, sublines, basic_block, basic_block->data.call);
 		}
 		else {
 			if (basic_block->type == INSTRUCTION_JUMP && basic_block->dest.text != NULL){
@@ -2466,6 +2466,7 @@ byte backpass(compiler* const comp){
 		comp->lines.changed[0] = 0;
 		correct_offsets(comp, &sublines, comp->ir);
 	}
+	ASSERT_LOCAL(comp->lines.size == 1, " ended program in nested push\n");
 	pool_dealloc(&subline_pool);
 	comp->buf = pool_request(comp->mem, 4*comp->lines.line[0]);
 	return 0;
@@ -2677,8 +2678,10 @@ void run_rom(char* filename){
 }
 
 int32_t main(int argc, char** argv){
-	//compile_file("full_syntax.src", "full_syntax.rom");
-	//return 0;
+#ifdef ORB_DEBUG
+	compile_file("full_syntax.src", "full_syntax.rom");
+	return 0;
+#endif
 	if (argc <= 1){
 		printf(" -h for help\n");
 		return 0;
