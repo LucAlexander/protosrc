@@ -805,14 +805,14 @@ void setup_partition_map(REG_PARTITION_map* partmap){
 	for (REG_PARTITION i = 0;i<PARTITION_COUNT;++i){
 		parts[i] = i;
 	}
-	REG_PARTITION_map_insert(partmap, "Z]", parts++);
-	REG_PARTITION_map_insert(partmap, "Y]", parts++);
-	REG_PARTITION_map_insert(partmap, "X]", parts++);
-	REG_PARTITION_map_insert(partmap, "W]", parts++);
-	REG_PARTITION_map_insert(partmap, "Q]", parts++);
-	REG_PARTITION_map_insert(partmap, "D]", parts++);
-	REG_PARTITION_map_insert(partmap, "LO]", parts++);
-	REG_PARTITION_map_insert(partmap, "HI]", parts++);
+	REG_PARTITION_map_insert(partmap, "Z", parts++);
+	REG_PARTITION_map_insert(partmap, "Y", parts++);
+	REG_PARTITION_map_insert(partmap, "X", parts++);
+	REG_PARTITION_map_insert(partmap, "W", parts++);
+	REG_PARTITION_map_insert(partmap, "Q", parts++);
+	REG_PARTITION_map_insert(partmap, "D", parts++);
+	REG_PARTITION_map_insert(partmap, "LO", parts++);
+	REG_PARTITION_map_insert(partmap, "HI", parts++);
 }
 
 byte whitespace(char c){
@@ -1043,6 +1043,7 @@ word parse_call_block(compiler* const comp, bsms* const sublabels, word token_in
 			data->type = REG_ARG;
 			data->data.reg = t.data.reg;
 			token_index = parse_register(comp, token_index-1, &data->data.reg);
+			ASSERT_ERR(0);
 			data->next = pool_request(comp->mem, sizeof(call_tree));
 			last = data;
 			data = data->next;
@@ -1327,21 +1328,25 @@ word parse_instruction_block(compiler* const comp, bsms* const sublabels, word t
 			case MUL: case DIV: case MOD: case AND:
 			case OR: case SHL: case SHR: case XOR:
 				token_index = parse_3reg(comp, t.data.opcode, instruction_index, token_index, code);
+				ASSERT_ERR(0);
 				break;
 			case LDS: case STS: case ADS: case SUS:
 			case MUS: case DIS: case MOS: case ANS:
 			case ORS: case SLS: case SRS: case XRS:
 			case CMS:
 				token_index = parse_reg_short(comp, t.data.opcode, instruction_index, token_index, code);
+				ASSERT_ERR(0);
 				break;
 			case MOV: case SWP: case ADI: case SUI:
 			case MUI: case DII: case MOI: case ANI:
 			case ORI: case SLI: case SRI: case XRI:
 			case INV: case COM: case CMP:
 				token_index = parse_2reg(comp, t.data.opcode, instruction_index, token_index, code);
+				ASSERT_ERR(0);
 				break;
 			case LDI: case STB:
 				token_index = parse_2reg_byte(comp, t.data.opcode, instruction_index, token_index, code);
+				ASSERT_ERR(0);
 				break;
 			case INI: case COI: case RET: case PSH:
 			case POP: case INR:
@@ -2679,7 +2684,7 @@ void run_rom(char* filename){
 
 int32_t main(int argc, char** argv){
 #ifdef ORB_DEBUG
-	compile_file("full_syntax.src", "full_syntax.rom");
+	compile_file("demo.src", "demo.rom");
 	return 0;
 #endif
 	if (argc <= 1){
