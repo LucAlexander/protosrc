@@ -875,6 +875,7 @@ byte lex_cstr(compiler* const comp){
 		case CLOSE_CALL_TOKEN:
 		case OPEN_PUSH_TOKEN:
 		case CLOSE_PUSH_TOKEN:
+		case INCLUDE_TOKEN:
 		case SUBLABEL_TOKEN:
 		case LABEL_TOKEN:
 			t->type = c;
@@ -1480,6 +1481,59 @@ word parse_instruction_block(compiler* const comp, bsms* const sublabels, word t
 
 word parse_code(compiler* const comp, bsms* const sublabels, word token_index, code_tree* ir, TOKEN terminator){
 	code_tree* last = ir;
+	if (terminator == NONE_TOKEN){
+		while (token_index < comp->token_count){
+			token t = comp->tokens[token_index];
+			if (t.type != INCLUDE_TOKEN){
+				break;
+			}
+			token_index += 1;
+			ASSERT_LOCAL(terminator == NONE_TOKEN, PARSERR " Cannot include in nested code, only top level" PARSERRFIX, t.text);
+			t = comp->tokens[token_index];
+			token_index += 1;
+			char* filename = pool_request(comp->mem, t.size+4);
+			strncpy(filename, t.text, t.size);
+			strcat(filename, ".src");
+			filename[t.size+4] = '\0';
+			FILE* inc = fopen(filename, "r");
+			ASSERT_LOCAL(inc != NULL, PARSERR " Could not find file %s" PARSERRFIX, filename, t.text);
+			char* inc_text = comp->mem->ptr;
+			word read_bytes = fread(inc_text, sizeof(byte), comp->mem->left, inc);
+			fclose(inc);
+			ASSERT_LOCAL(read_bytes < comp->mem->left, PARSERR " Included file %s too big" PARSERRFIX, filename, t.text);
+			pool_request(comp->mem, read_bytes);
+			compiler nested = {
+				.str.size=read_bytes,
+				.str.i=0,
+				.str.text=inc_text,
+				.opmap=comp->opmap,
+				.regmap=comp->regmap,
+				.partmap=comp->partmap,
+				.mem=comp->mem,
+				.code=comp->code,
+				.labels=comp->labels,
+				.buf=NULL,
+				.err = comp->err
+			};
+			lex_cstr(&nested);
+			nested.lines=comp->lines;
+			parse_code(&nested, sublabels, 0, ir, NONE_TOKEN);
+			block_scope_map* submap = &sublabels->map[sublabels->size-1];
+			remaining_labels(&nested, submap);
+			ASSERT_ERR(0);
+			if (sublabels->size == 1){
+				pool_empty(submap->mem);
+			}
+			block_scope_map_empty(submap);
+			remaining_labels(&nested, &nested.labels.map[nested.labels.size-1]);
+			ASSERT_ERR(0);
+			ir->next = pool_request(comp->mem, sizeof(code_tree));
+			last = ir;
+			ir = ir->next;
+			ir->labeling = NOT_LABELED;
+			ir->next = NULL;
+		}
+	}
 	while (token_index < comp->token_count){
 		token t = comp->tokens[token_index];
 		token_index += 1;
@@ -1927,6 +1981,9 @@ void show_tokens(compiler* const comp){
 			break;
 		case LABEL_TOKEN:
 			printf("LABEL ");
+			break;
+		case INCLUDE_TOKEN:
+			printf("INCLUSION ");
 			break;
 		case SHORT_HEX_NUMERIC_TOKEN:
 			printf("SHORT ");
@@ -2593,8 +2650,8 @@ void generate_code(compiler* const comp){
 	}
 }
 
+//TODO file inclusion
 //TODO macro blocks
-//TODO string literals
 //TODO implement builtin external calls
 //TODO optimization pass
 byte compile_cstr(compiler* const comp){
@@ -2632,9 +2689,9 @@ void compile_file(char* infile, char* outfile){
 		fclose(fd);
 		return;
 	}
-	word read_bytes = fread(mem.buffer, sizeof(byte), READ_BUFFER_SIZE, fd);
+	word read_bytes = fread(mem.buffer, sizeof(byte), mem.left, fd);
 	fclose(fd);
-	if (read_bytes == READ_BUFFER_SIZE){
+	if (read_bytes == mem.left){
 		fprintf(stderr, "File too big\n");
 		pool_dealloc(&mem);
 		return;
