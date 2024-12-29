@@ -1862,7 +1862,7 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 				remainder %= 8;
 				under_round = push->data.bytes.size-remainder;
 			}
-			pool_request(comp->code, 5+(under_round*4*5));
+			pool_request(comp->code, (4*5)+(under_round*4*5));
 			for (word i = 0;i<under_round;){
 				basic_block->code.instructions[instruction_index++] = LDS;
 				basic_block->code.instructions[instruction_index++] = REG(L16, AR);
@@ -1889,7 +1889,7 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 				sublines->line[sublines->size-1] += 5;
 			}
 			byte line[8] = {0};
-			for (word i = 8-remainder;i<8;++i){
+			for (word i = 7-remainder;i<8;++i){
 				line[i] = push->data.bytes.raw[under_round+i];
 			}
 			word index = 0;
@@ -2677,8 +2677,8 @@ void run_rom(char* filename){
 }
 
 int32_t main(int argc, char** argv){
-	compile_file("full_syntax.src", "full_syntax.rom");
-	return 0;
+	//compile_file("full_syntax.src", "full_syntax.rom");
+	//return 0;
 	if (argc <= 1){
 		printf(" -h for help\n");
 		return 0;
