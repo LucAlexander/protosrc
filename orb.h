@@ -9,6 +9,7 @@
 
 #define READ_BUFFER_SIZE 0x10000000
 #define WRITE_BUFFER_SIZE 0x10000000
+#define MACHINE_AUX_SIZE 0x10000000
 #define AUX_SIZE 0x100000
 #define ERROR_BUFFER 0x100
 #define ARENA_SIZE READ_BUFFER_SIZE+AUX_SIZE+ERROR_BUFFER
@@ -17,6 +18,7 @@
 #define INSTRUCTION_WIDTH 0x4
 #define PROGRAM_START 0x200
 #define MEMORY_SIZE 0x100000
+#define DEVICE_COUNT 0x8
 
 typedef uint64_t word;
 typedef uint8_t byte;
@@ -43,6 +45,23 @@ typedef enum {
 
 MAP_DEF(OPCODE)
 
+/* ARGUMENTS
+ *  OUT a : string address
+ *      b : string length
+ *
+*/
+
+typedef enum {
+	EXT_OUT,
+	EXT_END,
+	EXT_MEM,
+	EXT_MEM_PROG,
+	EXT_MEM_AUX,
+	EXT_COUNT
+} EXTERNAL_CALLS;
+
+MAP_DEF(EXTERNAL_CALLS)
+
 typedef enum {
 	IP, SP, FP, SR, LR, CR, AR,
 	R0, R1, R2, R3, R4, R5, R6, R7, R8,
@@ -56,7 +75,13 @@ typedef struct machine {
 	byte* lo[REGISTER_COUNT];
 	byte* hi[REGISTER_COUNT];
 	byte mem[MEMORY_SIZE];
+	byte* dev[DEVICE_COUNT];
+	pool aux;
 } machine;
+
+void setup_machine(machine* const mach);
+void setup_devices(machine* const mach);
+void setup_registers(machine* const mach);
 
 MAP_DEF(REGISTER)
 
@@ -91,6 +116,7 @@ typedef enum {
 	OPCODE_TOKEN,
 	REGISTER_TOKEN,
 	PART_TOKEN,
+	EXT_TOKEN,
 	OPEN_CALL_TOKEN='(',
 	CLOSE_CALL_TOKEN=')',
 	OPEN_PUSH_TOKEN='{',
@@ -114,6 +140,7 @@ typedef struct {
 		OPCODE opcode;
 		REGISTER reg;
 		REG_PARTITION part;
+		EXTERNAL_CALLS ext;
 	} data;
 	TOKEN type;
 	byte size;
@@ -257,6 +284,7 @@ typedef struct {
 	OPCODE_map opmap;
 	REGISTER_map regmap;
 	REG_PARTITION_map partmap;
+	EXTERNAL_CALLS_map extmap;
 	token* tokens;
 	word token_count;
 	code_tree* ir;
@@ -272,6 +300,7 @@ void show_registers(machine* const mach);
 void show_mem(machine* const mach);
 void show_machine(machine* const mach);
 void interpret(machine* const mach);
+void interpret_external(machine* const mach, byte ext);
 void setup_opcode_map(OPCODE_map* opmap);
 void setup_register_map(REGISTER_map* regmap);
 void setup_partition_map(REG_PARTITION_map* partmap);
@@ -294,7 +323,6 @@ byte show_block(compiler* const comp, code_tree* const code, word depth);
 void show_tokens(compiler* const comp);
 byte compile_cstr(compiler* const comp);
 void compile_file(char* infile, char* outfile);
-void setup_registers(machine* const mach);
 void flash_rom(machine* const mach, byte* buffer, uint64_t size);
 void demo();
 void show_binary(char* filename);

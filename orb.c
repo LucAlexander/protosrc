@@ -9,6 +9,7 @@
 MAP_IMPL(OPCODE)
 MAP_IMPL(REGISTER)
 MAP_IMPL(REG_PARTITION)
+MAP_IMPL(EXTERNAL_CALLS)
 MAP_IMPL(block_scope)
 MAP_IMPL(loc_thunk)
 
@@ -682,12 +683,38 @@ void interpret(machine* const mach){
 				}
 				else { mach->reg[IP] += 1; }
 			} break;
-		case EXT: { mach->reg[IP] += 1; } break;
-		case EXR: { mach->reg[IP] += 1; } break;
+		case EXT: {
+				byte a = NEXT;
+				interpret_external(mach, a);
+				mach->reg[IP] += 1;
+			} break;
+		case EXR: {
+				byte adr = NEXT;
+				word a; ACCESS_REG(a, adr);
+				interpret_external(mach, a);
+				mach->reg[IP] += 1;
+			} break;
 		default:
 			printf("Unknown upcode\n");
 			return;
 		}
+	}
+}
+
+void interpret_external(machine* const mach, byte ext){
+	switch (ext){
+	case EXT_OUT:
+		word str = mach->reg[R0];
+		word len = mach->reg[R1];
+		byte* data = &mach->mem[str];
+		byte save = data[len];
+		data[len] = '\0';
+		printf("%s",(const char*)data);
+		data[len] = save;
+		return;
+	default:
+		fprintf(stderr, "External call unimplemented");
+		return;
 	}
 }
 
@@ -813,6 +840,18 @@ void setup_partition_map(REG_PARTITION_map* partmap){
 	REG_PARTITION_map_insert(partmap, "D", parts++);
 	REG_PARTITION_map_insert(partmap, "LO", parts++);
 	REG_PARTITION_map_insert(partmap, "HI", parts++);
+}
+
+void setup_external_call_map(EXTERNAL_CALLS_map* extmap){
+	EXTERNAL_CALLS* ext = pool_request(extmap->mem, sizeof(EXTERNAL_CALLS)*EXT_COUNT);
+	for (EXTERNAL_CALLS i = 0;i<EXT_COUNT;++i){
+		ext[i] = i;
+	}
+	EXTERNAL_CALLS_map_insert(extmap, "OUT", ext++);
+	EXTERNAL_CALLS_map_insert(extmap, "END", ext++);
+	EXTERNAL_CALLS_map_insert(extmap, "MEM", ext++);
+	EXTERNAL_CALLS_map_insert(extmap, "MEM_PROG", ext++);
+	EXTERNAL_CALLS_map_insert(extmap, "MEM_AUX", ext++);
 }
 
 byte whitespace(char c){
@@ -1009,6 +1048,15 @@ byte lex_cstr(compiler* const comp){
 		if (p != NULL){
 			t->type = PART_TOKEN;
 			t->data.part = *p;
+			comp->str.text[comp->str.i] = copy;
+			pool_request(comp->mem, sizeof(token));
+			comp->token_count += 1;
+			continue;
+		}
+		EXTERNAL_CALLS* ex = EXTERNAL_CALLS_map_access(&comp->extmap, (const char* const)t->text);
+		if (ex != NULL){
+			t->type = EXT_TOKEN;
+			t->data.ext = *ex;
 			comp->str.text[comp->str.i] = copy;
 			pool_request(comp->mem, sizeof(token));
 			comp->token_count += 1;
@@ -1452,10 +1500,10 @@ word parse_instruction_block(compiler* const comp, bsms* const sublabels, word t
 				break;
 			case EXT:
 				token b = comp->tokens[token_index];
-				ASSERT_LOCAL(b.type == BYTE_HEX_NUMERIC_TOKEN, PARSERR " Expected byte literal" PARSERRFIX, b.text);
+				ASSERT_LOCAL(b.type == EXT_TOKEN, PARSERR " Expected external directive" PARSERRFIX, b.text);
 				token_index += 1;
 				code->code.instructions[instruction_index] = t.data.opcode;
-				code->code.instructions[instruction_index+1] = (b.data.number & 0xFF);
+				code->code.instructions[instruction_index+1] = b.data.ext;
 				code->code.instructions[instruction_index+2] = 0;
 				code->code.instructions[instruction_index+3] = 0;
 				break;
@@ -1509,6 +1557,7 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 				.opmap=comp->opmap,
 				.regmap=comp->regmap,
 				.partmap=comp->partmap,
+				.extmap=comp->extmap,
 				.mem=comp->mem,
 				.code=comp->code,
 				.labels=comp->labels,
@@ -1960,6 +2009,9 @@ void show_tokens(compiler* const comp){
 			break;
 		case PART_TOKEN:
 			printf("PARTITION %u ", comp->tokens[i].data.part);
+			break;
+		case EXT_TOKEN:
+			printf("EXTERNAL %u ", comp->tokens[i].data.ext);
 			break;
 		case OPEN_CALL_TOKEN:
 			printf("OPEN CALL ");
@@ -2650,7 +2702,6 @@ void generate_code(compiler* const comp){
 	}
 }
 
-//TODO file inclusion
 //TODO macro blocks
 //TODO implement builtin external calls
 //TODO optimization pass
@@ -2705,15 +2756,18 @@ void compile_file(char* infile, char* outfile){
 	OPCODE_map opmap = OPCODE_map_init(&mem);
 	REGISTER_map regmap = REGISTER_map_init(&mem);
 	REG_PARTITION_map partmap = REG_PARTITION_map_init(&mem);
+	EXTERNAL_CALLS_map extmap = EXTERNAL_CALLS_map_init(&mem);
 	setup_opcode_map(&opmap);
 	setup_register_map(&regmap);
 	setup_partition_map(&partmap);
+	setup_external_call_map(&extmap);
 	pool code = pool_alloc(WRITE_BUFFER_SIZE, POOL_STATIC);
 	compiler comp = {
 		.str = str,
 		.opmap = opmap,
 		.regmap = regmap,
 		.partmap = partmap,
+		.extmap = extmap,
 		.mem = &mem,
 		.code = &code,
 		.buf = NULL,
@@ -2768,6 +2822,7 @@ void flash_rom(machine* const mach, byte* buffer, uint64_t size){
 
 void demo(){
 	machine mach;
+	setup_machine(&mach);
 	byte cc[] = {
 		CAL_,
 			LDS_(REG(L16, R3), 0xDEAD),
@@ -2794,9 +2849,9 @@ void demo(){
 		LDS_(REG(FULL, R2), 0xDEAD),
 		NOP_, NOP_, NOP_, NOP_
 	};
-	setup_registers(&mach);
 	flash_rom(&mach, cc, 128);
 	interpret(&mach);
+	pool_dealloc(&mach.aux);
 	return;
 }
 
@@ -2824,6 +2879,10 @@ void show_binary(char* filename){
 	free(buffer);
 }
 
+void setup_devices(machine* const mach){
+	mach->dev[0] = pool_request(&mach->aux, AUX_SIZE);
+}
+
 void run_rom(char* filename){
 	FILE* fd = fopen(filename, "rb");
 	if (fd == NULL){
@@ -2839,15 +2898,23 @@ void run_rom(char* filename){
 		return;
 	}
 	machine mach;
-	setup_registers(&mach);
+	setup_machine(&mach);
 	flash_rom(&mach, buffer, size);
 	interpret(&mach);
 	free(buffer);
+	pool_dealloc(&mach.aux);
+}
+
+void setup_machine(machine* const mach){
+	mach->aux = pool_alloc(MACHINE_AUX_SIZE, POOL_STATIC);
+	setup_registers(mach);
+	setup_devices(mach);
 }
 
 int32_t main(int argc, char** argv){
 #ifdef ORB_DEBUG
-	compile_file("full_syntax.src", "full_syntax.rom");
+	//compile_file("demo.src", "demo.rom");
+	//run_rom("demo.rom");
 	return 0;
 #endif
 	if (argc <= 1){
