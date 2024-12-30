@@ -932,7 +932,7 @@ byte lex_cstr(compiler* const comp){
 			continue;
 		case STRING_TOKEN:
 			t->type = c;
-			t->text = &comp->str.text[comp->str.i];
+			t->text = pool_request(comp->code, 1);
 			t->size = 0;
 			while (comp->str.i < comp->str.size){
 				c = comp->str.text[comp->str.i];
@@ -940,10 +940,32 @@ byte lex_cstr(compiler* const comp){
 				if (c == '\n'){
 					line += 1;
 				}
+				else if (c == '\\'){
+					c = comp->str.text[comp->str.i];
+					comp->str.i += 1;
+					switch (c){
+					case 'a': c = '\a'; break;
+					case 'b': c = '\b'; break;
+					case 'e': c = '\033'; break;
+					case 'f': c = '\f'; break;
+					case 'n': c = '\n'; break;
+					case 'r': c = '\r'; break;
+					case 't': c = '\t'; break;
+					case 'v': c = '\v'; break;
+					case '\\': c = '\\'; break;
+					case '\'': c = '\''; break;
+					case '"': c = '"'; break;
+					case '?': c = '\?'; break;
+					case '\n': line += 1; break;
+					}
+				}
 				else if (c == STRING_TOKEN){
+					t->text[t->size] = '\0';
 					break;
 				}
+				t->text[t->size] = c;
 				t->size += 1;
+				pool_request(comp->code, 1);
 			}
 			pool_request(comp->mem, sizeof(token));
 			comp->token_count += 1;
@@ -2926,7 +2948,7 @@ void setup_machine(machine* const mach){
 
 int32_t main(int argc, char** argv){
 #ifdef ORB_DEBUG
-	//compile_file("demo.src", "demo.rom");
+	compile_file("demo.src", "demo.rom");
 	//run_rom("demo.rom");
 	return 0;
 #endif
