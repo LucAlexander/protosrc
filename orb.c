@@ -416,10 +416,12 @@ void show_machine(machine* const mach){
 	int16_t offset = SHORT_LITERAL;\
 	mach->reg[IP] += offset;
 
-void interpret(machine* const mach){
+void interpret(machine* const mach, byte debug){
 	while (1){
-		show_machine(mach);
-		getc(stdin);
+		if (debug){
+			show_machine(mach);
+			getc(stdin);
+		}
 		word ip = PROGRAM_START+(mach->reg[IP]*INSTRUCTION_WIDTH);
 		byte op = mach->mem[ip];
 		switch (op){
@@ -685,13 +687,17 @@ void interpret(machine* const mach){
 			} break;
 		case EXT: {
 				byte a = NEXT;
-				interpret_external(mach, a);
+				if (interpret_external(mach, a) == 1){
+					return;
+				}
 				mach->reg[IP] += 1;
 			} break;
 		case EXR: {
 				byte adr = NEXT;
 				word a; ACCESS_REG(a, adr);
-				interpret_external(mach, a);
+				if (interpret_external(mach, a) == 0){
+					return;
+				}
 				mach->reg[IP] += 1;
 			} break;
 		default:
@@ -701,7 +707,7 @@ void interpret(machine* const mach){
 	}
 }
 
-void interpret_external(machine* const mach, byte ext){
+byte interpret_external(machine* const mach, byte ext){
 	switch (ext){
 	case EXT_OUT:
 		word str = mach->reg[R0];
@@ -711,11 +717,14 @@ void interpret_external(machine* const mach, byte ext){
 		data[len] = '\0';
 		printf("%s",(const char*)data);
 		data[len] = save;
-		return;
+		return 1;
+	case EXT_END:
+		return 0;
 	default:
 		fprintf(stderr, "External call unimplemented");
-		return;
+		return 0;
 	}
+	return 0;
 }
 
 #define ASSERT_LOCAL(b, ...)\
@@ -1087,10 +1096,14 @@ word parse_register(compiler* const comp, word token_index, byte* r){
 void parse_string_bytes(compiler* const comp, word token_index, data_tree* data){
 	data->type = BYTE_DATA;
 	token t = comp->tokens[token_index];
-	data->data.bytes.raw = pool_request(comp->mem, t.size);
-	data->data.bytes.size = t.size;
+	word remainder_offset = 8-(t.size % 8);
+	data->data.bytes.size = t.size+remainder_offset;
+	data->data.bytes.raw = pool_request(comp->mem, t.size+remainder_offset);
+	for (word i = 0;i<remainder_offset;++i){
+		data->data.bytes.raw[i] = 0;
+	}
 	for (word i = 0;i<t.size;++i){
-		data->data.bytes.raw[i] = t.text[i];
+		data->data.bytes.raw[remainder_offset+i] = t.text[t.size-(1+i)];
 	}
 }
 
@@ -2850,7 +2863,7 @@ void demo(){
 		NOP_, NOP_, NOP_, NOP_
 	};
 	flash_rom(&mach, cc, 128);
-	interpret(&mach);
+	interpret(&mach, 1);
 	pool_dealloc(&mach.aux);
 	return;
 }
@@ -2900,7 +2913,7 @@ void run_rom(char* filename){
 	machine mach;
 	setup_machine(&mach);
 	flash_rom(&mach, buffer, size);
-	interpret(&mach);
+	interpret(&mach, 0);
 	free(buffer);
 	pool_dealloc(&mach.aux);
 }

@@ -299,8 +299,8 @@ typedef struct {
 void show_registers(machine* const mach);
 void show_mem(machine* const mach);
 void show_machine(machine* const mach);
-void interpret(machine* const mach);
-void interpret_external(machine* const mach, byte ext);
+void interpret(machine* const mach, byte debug);
+byte interpret_external(machine* const mach, byte ext);
 void setup_opcode_map(OPCODE_map* opmap);
 void setup_register_map(REGISTER_map* regmap);
 void setup_partition_map(REG_PARTITION_map* partmap);
