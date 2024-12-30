@@ -1611,6 +1611,9 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 			block_scope_map_empty(submap);
 			remaining_labels(&nested, &nested.labels.map[nested.labels.size-1]);
 			ASSERT_ERR(0);
+			while (ir->next != NULL){
+				ir = ir->next;
+			}
 			ir->next = pool_request(comp->mem, sizeof(code_tree));
 			last = ir;
 			ir = ir->next;
