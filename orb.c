@@ -2741,7 +2741,6 @@ void generate_code(compiler* const comp){
 }
 
 //TODO macro blocks
-//TODO implement builtin external calls
 //TODO optimization pass
 byte compile_cstr(compiler* const comp){
 	lex_cstr(comp);
