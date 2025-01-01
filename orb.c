@@ -2105,7 +2105,7 @@ void show_tokens(compiler* const comp){
 	printf("\n");
 }
 
-code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* basic_block, data_tree* push){
+code_tree* pregen_push(compiler* const comp, ltms* const sublines, code_tree* basic_block, data_tree* push){
 	word instruction_index = basic_block->code.instruction_count*4;
 	while (push != NULL){
 		switch (push->type){
@@ -2192,21 +2192,26 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 			}
 			ltms_pop(&comp->lines);
 			ltms_pop(sublines);
+			byte* old = basic_block->code.instructions;
+			basic_block->code.instructions = pool_request(comp->code, basic_block->code.instruction_count*4);
+			for (word i = 0;i<basic_block->code.instruction_count*4;++i){
+				basic_block->code.instructions[i] = old[i];
+			}
 			code_tree* code = push->data.code;
 			while (code != NULL){
 				word n = code->code.instruction_count * 4;
 				byte hi = 0;
 				for (word i = n;i>0;){
 					if (hi == 1){
-						pool_request(comp->code, 4*3);
+						pool_request(comp->code, 4*3); // TODO cannot crawl
 						basic_block->code.instructions[instruction_index++] = LDS;
-						basic_block->code.instructions[instruction_index++] = REG(LM16, AR);
-						basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
-						basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
+						basic_block->code.instructions[instruction_index++] = REG(RM16, AR);
+						basic_block->code.instructions[instruction_index++] = code->code.instructions[--i];
+						basic_block->code.instructions[instruction_index++] = code->code.instructions[--i];
 						basic_block->code.instructions[instruction_index++] = LDS;
-						basic_block->code.instructions[instruction_index++] = REG(L16, AR);
-						basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
-						basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
+						basic_block->code.instructions[instruction_index++] = REG(R16, AR);
+						basic_block->code.instructions[instruction_index++] = code->code.instructions[--i];
+						basic_block->code.instructions[instruction_index++] = code->code.instructions[--i];
 						basic_block->code.instructions[instruction_index++] = PSH;
 						basic_block->code.instructions[instruction_index++] = REG(FULL, AR);
 						basic_block->code.instructions[instruction_index++] = 0;
@@ -2219,13 +2224,13 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 					}
 					pool_request(comp->code, 4*2);
 					basic_block->code.instructions[instruction_index++] = LDS;
-					basic_block->code.instructions[instruction_index++] = REG(R16, AR);
-					basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
-					basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
+					basic_block->code.instructions[instruction_index++] = REG(L16, AR);
+					basic_block->code.instructions[instruction_index++] = code->code.instructions[--i];
+					basic_block->code.instructions[instruction_index++] = code->code.instructions[--i];
 					basic_block->code.instructions[instruction_index++] = LDS;
-					basic_block->code.instructions[instruction_index++] = REG(RM16, AR);
-					basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
-					basic_block->code.instructions[instruction_index++] = code->code.instructions[i--];
+					basic_block->code.instructions[instruction_index++] = REG(LM16, AR);
+					basic_block->code.instructions[instruction_index++] = code->code.instructions[--i];
+					basic_block->code.instructions[instruction_index++] = code->code.instructions[--i];
 					basic_block->code.instruction_count += 2;
 					comp->lines.line[comp->lines.size-1] += 2;
 					sublines->line[sublines->size-1] += 2;
@@ -2234,11 +2239,11 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines,  code_tree* b
 				if (hi == 1){
 					pool_request(comp->code, 4*3);
 					basic_block->code.instructions[instruction_index++] = LDS;
-					basic_block->code.instructions[instruction_index++] = REG(LM16, AR);
+					basic_block->code.instructions[instruction_index++] = REG(RM16, AR);
 					basic_block->code.instructions[instruction_index++] = 0;
 					basic_block->code.instructions[instruction_index++] = 0;
 					basic_block->code.instructions[instruction_index++] = LDS;
-					basic_block->code.instructions[instruction_index++] = REG(L16, AR);
+					basic_block->code.instructions[instruction_index++] = REG(R16, AR);
 					basic_block->code.instructions[instruction_index++] = 0;
 					basic_block->code.instructions[instruction_index++] = 0;
 					basic_block->code.instructions[instruction_index++] = PSH;
@@ -2609,7 +2614,7 @@ byte loc_thunk_add_member(ltms* const stack, token t){
 		}
 		node->type = FULFILLED_MEMBER;
 		while (node != NULL){
-			stack->changed[stack->size-1] |= node->f(node->jump, node->jump_line, stack->line[stack->size-1]);
+			stack->changed[stack->size-1] |= node->f(node->jump, node->jump_line, stack->line[stack->size-1]+1);
 			node = node->next;
 		}
 		return 0;
@@ -2618,7 +2623,7 @@ byte loc_thunk_add_member(ltms* const stack, token t){
 	node->type = FULFILLED_MEMBER;
 	node->next = NULL;
 	node->label = t;
-	node->line = stack->line[stack->size-1];
+	node->line = stack->line[stack->size-1]+1;
 	node->jump = NULL;
 	char* new_name = pool_request(thunk->mem, size);
 	strncpy(new_name, name, size);
@@ -2937,7 +2942,7 @@ void run_rom(char* filename){
 	machine mach;
 	setup_machine(&mach);
 	flash_rom(&mach, buffer, size);
-	interpret(&mach, 0);
+	interpret(&mach, 1);
 	free(buffer);
 	pool_dealloc(&mach.aux);
 }
@@ -2950,7 +2955,8 @@ void setup_machine(machine* const mach){
 
 int32_t main(int argc, char** argv){
 #ifdef ORB_DEBUG
-	compile_file("demo.src", "demo.rom");
+	compile_file("lambda.src", "lambda.rom");
+	//compile_file("demo.src", "demo.rom");
 	//run_rom("demo.rom");
 	return 0;
 #endif
