@@ -124,7 +124,13 @@ void show_mem(machine* const mach){
 	for (byte i = 0;i<INSTRUCTION_WIDTH*8;){
 		word address = PROGRAM_START+(INSTRUCTION_WIDTH*mach->reg[IP]);
 		printf("%016lx | ", address+i);
+		if (address+i > MEMORY_SIZE){
+			break;
+		}
 		byte m = i+INSTRUCTION_WIDTH;
+		if ((address+m-1) > MEMORY_SIZE){
+			m = MEMORY_SIZE-address;
+		}
 		for (;i<m;++i){
 			printf("%02x \033[0m\033[1m", mach->mem[address+i]);
 		}
@@ -158,7 +164,7 @@ void show_machine(machine* const mach){
 	printf("\033[H\033[1m");
 	show_registers(mach);
 	printf("\033[H\033[1m");
-	show_mem(mach);
+	//show_mem(mach);
 }
      
 #define NEXT (mach->mem[++ip])
@@ -391,7 +397,8 @@ void show_machine(machine* const mach){
 	PUSH_REG(REG(FULL, CR));\
 	PUSH_REG(REG(FULL, AR));\
 	mach->reg[FP] = mach->reg[SP];\
-	mach->reg[IP] = mach->reg[LR];
+	mach->reg[IP] = mach->reg[LR]-PROGRAM_START;\
+	mach->reg[IP] /= 4;
 
 #define BRANCH_JUMP\
 	PUSH_REG(REG(FULL, IP));\
@@ -1326,6 +1333,7 @@ word parse_push_block(compiler* const comp, bsms* const sublabels, word token_in
 			data->data.code = pool_request(comp->mem, sizeof(code_tree));
 			data->data.code->labeling = NOT_LABELED;
 			data->data.code->next = NULL;
+			data->data.code->prev = NULL;
 			token_index = parse_code(comp, sublabels, token_index-1, data->data.code, CLOSE_PUSH_TOKEN);
 			data->next = NULL;
 			bsms_pop(&comp->labels);
@@ -1601,6 +1609,7 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 			};
 			lex_cstr(&nested);
 			nested.lines=comp->lines;
+			ir->prev = NULL;
 			parse_code(&nested, sublabels, 0, ir, NONE_TOKEN);
 			block_scope_map* submap = &sublabels->map[sublabels->size-1];
 			remaining_labels(&nested, submap);
@@ -1639,6 +1648,7 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 			last = ir;
 			ir = ir->next;
 			ir->labeling = NOT_LABELED;
+			ir->prev = last;
 			ir->next = NULL;
 			continue;
 		case OPEN_CALL_TOKEN:
@@ -1651,6 +1661,7 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 			last = ir;
 			ir = ir->next;
 			ir->labeling = NOT_LABELED;
+			ir->prev = last;
 			ir->next = NULL;
 			continue;
 		case OPEN_PUSH_TOKEN:
@@ -1663,6 +1674,7 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 			last = ir;
 			ir = ir->next;
 			ir->labeling = NOT_LABELED;
+			ir->prev = last;
 			ir->next = NULL;
 			continue;
 		case STRING_TOKEN:
@@ -1674,6 +1686,7 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 			last = ir;
 			ir = ir->next;
 			ir->labeling = NOT_LABELED;
+			ir->prev = last;
 			ir->next = NULL;
 			continue;
 		case SUBLABEL_TOKEN:
@@ -1838,6 +1851,7 @@ byte parse_tokens(compiler* const comp){
 		.capacity=PUSH_LABEL_SCOPE_LIMIT
 	};
 	sublabels.map[0] = block_scope_map_init(&sublabel_pool);
+	comp->ir->prev = NULL;
 	parse_code(comp, &sublabels, token_index, comp->ir, NONE_TOKEN);
 	remaining_labels(comp, &sublabels.map[sublabels.size-1]);
 	pool_dealloc(&sublabel_pool);
@@ -2198,12 +2212,15 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines, code_tree* ba
 				basic_block->code.instructions[i] = old[i];
 			}
 			code_tree* code = push->data.code;
+			while (code->next != NULL){
+				code = code->next;
+			}
 			while (code != NULL){
 				word n = code->code.instruction_count * 4;
 				byte hi = 0;
 				for (word i = n;i>0;){
 					if (hi == 1){
-						pool_request(comp->code, 4*3); // TODO cannot crawl
+						pool_request(comp->code, 4*3);
 						basic_block->code.instructions[instruction_index++] = LDS;
 						basic_block->code.instructions[instruction_index++] = REG(RM16, AR);
 						basic_block->code.instructions[instruction_index++] = code->code.instructions[--i];
@@ -2254,7 +2271,7 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines, code_tree* ba
 					comp->lines.line[comp->lines.size-1] += 3;
 					sublines->line[sublines->size-1] += 3;
 				}
-				code = code->next;
+				code = code->prev;
 			}
 			break;
 		}
@@ -2371,7 +2388,9 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 	new_block->type = INSTRUCTION_JUMP;
 	new_block->labeling = NOT_LABELED;
 	new_block->next = basic_block->next;
+	new_block->next->prev = new_block;
 	basic_block->next = new_block;
+	new_block->prev = basic_block;
 	new_block->code.instructions = pool_request(comp->code, 4*5);
 	new_block->code.instruction_count = 1;
 	comp->lines.line[comp->lines.size-1] += 1;
@@ -2424,6 +2443,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 	next_block->type = INSTRUCTION_BLOCK;
 	next_block->labeling = NOT_LABELED;
 	next_block->next = new_block->next;
+	next_block->next->prev = next_block;
+	next_block->prev = new_block;
 	new_block->next = next_block;
 	next_block->code.instructions = pool_request(comp->code, 4);
 	next_block->code.instruction_count = 0;
@@ -2942,7 +2963,7 @@ void run_rom(char* filename){
 	machine mach;
 	setup_machine(&mach);
 	flash_rom(&mach, buffer, size);
-	interpret(&mach, 1);
+	interpret(&mach, 0);
 	free(buffer);
 	pool_dealloc(&mach.aux);
 }
@@ -2955,7 +2976,8 @@ void setup_machine(machine* const mach){
 
 int32_t main(int argc, char** argv){
 #ifdef ORB_DEBUG
-	compile_file("lambda.src", "lambda.rom");
+	//compile_file("lambda.src", "lambda.rom");
+	run_rom("lambda.rom");
 	//compile_file("demo.src", "demo.rom");
 	//run_rom("demo.rom");
 	return 0;

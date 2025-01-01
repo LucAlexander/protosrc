@@ -16,7 +16,7 @@
 #define TOKEN_MAX 64
 
 #define INSTRUCTION_WIDTH 0x4
-#define PROGRAM_START 0x200
+#define PROGRAM_START 0x0
 #define MEMORY_SIZE 0x100000
 #define DEVICE_COUNT 0x8
 
@@ -207,6 +207,7 @@ typedef struct code_tree {
 	} data;
 	code_tree* dest_block;
 	code_tree* next;
+	code_tree* prev;
 	enum {
 		INSTRUCTION_BLOCK,
 		INSTRUCTION_JUMP,
