@@ -16,8 +16,24 @@
 #define TOKEN_MAX 64
 
 #define INSTRUCTION_WIDTH 0x4
-#define PROGRAM_START 0x0
-#define MEMORY_SIZE 0x100000
+
+#define PRELUDE_SIZE 0x1000
+#define PROGRAM_START PRELUDE_SIZE
+#define PROGRAM_SIZE 0x100000
+
+#define MAIN_MEM_START PROGRAM_SIZE + PRELUDE_SIZE
+#define MAIN_MEM_SIZE 0x100000
+
+#define MEMORY_SIZE MAIN_MEM_SIZE + PROGRAM_SIZE + PRELUDE_SIZE
+
+#define PROG_MEM_START MEMORY_SIZE
+#define PROG_MEM_SIZE 0x10000
+
+#define AUX_MEM_START PROG_MEM_START + PROG_MEM_SIZE
+#define AUX_MEM_SIZE 0x100000
+
+#define FULL_MEM_SIZE AUX_MEM_START + AUX_MEM_SIZE
+
 #define DEVICE_COUNT 0x8
 
 typedef uint64_t word;
@@ -46,8 +62,12 @@ typedef enum {
 MAP_DEF(OPCODE)
 
 /* ARGUMENTS
- *  OUT a : string address
- *      b : string length
+ *  OUT      a : string address
+ *           b : string length
+ *  END
+ *  MEM      a : request size -> a : address
+ *  MEM_PROG a : request size -> a : address
+ *  MEM_AUX  a : request size -> a : address
  *
 */
 
@@ -74,9 +94,11 @@ typedef struct machine {
 	uint32_t* half[REGISTER_COUNT];
 	byte* lo[REGISTER_COUNT];
 	byte* hi[REGISTER_COUNT];
-	byte mem[MEMORY_SIZE];
+	byte mem[FULL_MEM_SIZE];
 	byte* dev[DEVICE_COUNT];
-	pool aux;
+	word mem_ptr;
+	word aux_ptr;
+	word prog_ptr;
 } machine;
 
 void setup_machine(machine* const mach);

@@ -727,6 +727,30 @@ byte interpret_external(machine* const mach, byte ext){
 		return 1;
 	case EXT_END:
 		return 0;
+	case EXT_MEM:
+		word mem_len = mach->reg[R0];
+		if (mem_len + mach->mem_ptr < MEMORY_SIZE){
+			mach->reg[R0] = mach->mem_ptr;
+			mach->mem_ptr += mem_len;
+			return 1;
+		}
+		return 0;
+	case EXT_MEM_PROG:
+		word prog_len = mach->reg[R0];
+		if (prog_len + mach->prog_ptr < AUX_MEM_START){
+			mach->reg[R0] = mach->prog_ptr;
+			mach->prog_ptr += prog_len;
+			return 1;
+		}
+		return 0;
+	case EXT_MEM_AUX:
+		word aux_len = mach->reg[R0];
+		if (aux_len + mach->aux_ptr < FULL_MEM_SIZE){
+			mach->reg[R0] = mach->aux_ptr;
+			mach->aux_ptr += aux_len;
+			return 1;
+		}
+		return 0;
 	default:
 		fprintf(stderr, "External call unimplemented");
 		return 0;
@@ -2767,6 +2791,7 @@ void generate_code(compiler* const comp){
 }
 
 //TODO macro blocks
+//TODO memory spaces
 //TODO optimization pass
 byte compile_cstr(compiler* const comp){
 	lex_cstr(comp);
@@ -2881,6 +2906,7 @@ void flash_rom(machine* const mach, byte* buffer, uint64_t size){
 	for (uint64_t i = 0;i<size;++i){
 		mach->mem[PROGRAM_START+i] = buffer[i];
 	}
+	mach->mem_ptr = size + PROGRAM_START;
 }
 
 void demo(){
@@ -2914,7 +2940,6 @@ void demo(){
 	};
 	flash_rom(&mach, cc, 128);
 	interpret(&mach, 1);
-	pool_dealloc(&mach.aux);
 	return;
 }
 
@@ -2943,7 +2968,6 @@ void show_binary(char* filename){
 }
 
 void setup_devices(machine* const mach){
-	mach->dev[0] = pool_request(&mach->aux, AUX_SIZE);
 }
 
 void run_rom(char* filename, byte debug){
@@ -2965,21 +2989,22 @@ void run_rom(char* filename, byte debug){
 	flash_rom(&mach, buffer, size);
 	interpret(&mach, debug);
 	free(buffer);
-	pool_dealloc(&mach.aux);
 }
 
 void setup_machine(machine* const mach){
-	mach->aux = pool_alloc(MACHINE_AUX_SIZE, POOL_STATIC);
+	mach->mem_ptr = PROGRAM_START;
+	mach->aux_ptr = AUX_MEM_START;
+	mach->prog_ptr = PROG_MEM_START;
 	setup_registers(mach);
 	setup_devices(mach);
 }
 
 int32_t main(int argc, char** argv){
 #ifdef ORB_DEBUG
-	//compile_file("lambda.src", "lambda.rom");
+	compile_file("lambda.src", "lambda.rom");
 	run_rom("lambda.rom");
-	//compile_file("demo.src", "demo.rom");
-	//run_rom("demo.rom");
+	compile_file("demo.src", "demo.rom");
+	run_rom("demo.rom");
 	return 0;
 #endif
 	if (argc <= 1){
