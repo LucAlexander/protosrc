@@ -327,7 +327,7 @@ void compile_file(char* infile, char* outfile);
 void flash_rom(machine* const mach, byte* buffer, uint64_t size);
 void demo();
 void show_binary(char* filename);
-void run_rom(char* filename);
+void run_rom(char* filename, byte debug);
 byte check_label_bucket(compiler* const comp, block_scope_map_bucket* bucket);
 byte remaining_labels(compiler* const comp, block_scope_map* const block);
 code_tree* pregen_push(compiler* const comp, ltms* const sublines, code_tree* basic_block, data_tree* push);

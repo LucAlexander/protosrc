@@ -164,7 +164,7 @@ void show_machine(machine* const mach){
 	printf("\033[H\033[1m");
 	show_registers(mach);
 	printf("\033[H\033[1m");
-	//show_mem(mach);
+	show_mem(mach);
 }
      
 #define NEXT (mach->mem[++ip])
@@ -694,7 +694,7 @@ void interpret(machine* const mach, byte debug){
 			} break;
 		case EXT: {
 				byte a = NEXT;
-				if (interpret_external(mach, a) == 1){
+				if (interpret_external(mach, a) == 0){
 					return;
 				}
 				mach->reg[IP] += 1;
@@ -2946,7 +2946,7 @@ void setup_devices(machine* const mach){
 	mach->dev[0] = pool_request(&mach->aux, AUX_SIZE);
 }
 
-void run_rom(char* filename){
+void run_rom(char* filename, byte debug){
 	FILE* fd = fopen(filename, "rb");
 	if (fd == NULL){
 		fprintf(stderr, "Unable to open file '%s'\n", filename);
@@ -2963,7 +2963,7 @@ void run_rom(char* filename){
 	machine mach;
 	setup_machine(&mach);
 	flash_rom(&mach, buffer, size);
-	interpret(&mach, 0);
+	interpret(&mach, debug);
 	free(buffer);
 	pool_dealloc(&mach.aux);
 }
@@ -3006,11 +3006,19 @@ int32_t main(int argc, char** argv){
 		return 0;
 	}
 	if (strncmp(argv[1], "-r", TOKEN_MAX) == 0){
-		if (argc != 3){
+		if (argc < 3){
 			printf(" Needs a rom image name\n");
 			return 0;
 		}
-		run_rom(argv[2]);
+		if (argc < 4){
+			run_rom(argv[2], 0);
+		}
+		else if (strncmp(argv[3], "-g", TOKEN_MAX) == 0){
+			run_rom(argv[2], 1);
+		}
+		else {
+			printf(" Unknopwn flag option '%s'\n", argv[3]);
+		}
 		return 0;
 	}
 	if (strncmp(argv[1], "-s", TOKEN_MAX) == 0){
