@@ -1758,9 +1758,59 @@ word parse_macro_definition(compiler* const comp, bsms* const sublabels, word to
 	token_index += 1;
 	t = comp->tokens[token_index];
 	comp->args = macro->args;
+	token_index += 1;
 	switch (t.type){
-	case //TODO parse definition, modify parse to take optional map of identifiers to arg types, check in parse when identifiers are presented in unexpected places, only when the compiler says its in a macro definition
-	}	
+	case SHORT_HEX_NUMERIC_TOKEN:
+	case BYTE_HEX_NUMERIC_TOKEN:
+	case DWORD_HEX_NUMERIC_TOKEN:
+	case QWORD_HEX_NUMERIC_TOKEN:
+		macro->type = NUMERIC_EVAL;
+		macro->data.number = t.data.number;
+		return token_index;
+	case OPEN_CALL_TOKEN:
+		macro->type = CALL_EVAL;
+		macro->data.call = pool_request(comp->mem, sizeof(call_tree));
+		macro->data.call->next = NULL;
+		token_index = parse_call_block(comp, sublabels, token_index, macro->data.call);
+		return token_index;
+	case OPEN_PUSH_TOKEN:
+		macro->type = PUSH_EVAL;
+		macro->data.push = pool_request(comp->mem, sizeof(data_tree));
+		macro->data.push->next = NULL;
+		token_index = parse_push_block(comp, sublabels, token_index, macro->data.push);
+		return token_index;
+	case OPEN_MACRO_TOKEN:
+		macro->type = MACRO_EVAL;
+		macro->data.macro = pool_request(comp->mem, sizeof(macro_tree));
+		macro->data.macro->next = NULL;
+		token_index = parse_macro(comp, sublabels, token_index, macro->data.macro);
+		return token_index;
+	case IDENTIFIER_TOKEN:
+		word save_index = token_index;
+		token label_name = t;
+		t = comp->tokens[token_index];
+		token_index += 1;
+		if (t.type == CLOSE_MACRO_TOKEN){
+			macro->type = LABEL_EVAL;
+			macro->data.labeling.label = label_name;
+			for (byte map_i = 0;map_i<comp->labels.size;++map_i){
+				code_tree* loc = block_scope_check_member(&comp->labels.map[map_i], t, &macro->data.labeling.dest_block);
+				if (loc != NULL){
+					macro->data.labeling.dest_block = loc;
+					break;
+				}
+			}
+			return token_index;
+		}
+		token_index = save_index;
+	default:
+		macro->type = CODE_EVAL;
+		macro->data.code = pool_request(comp->mem, sizeof(code_tree));
+		macro->data.code->next = NULL;
+		token_index = parse_code(comp, sublabels, token_index-1, macro->data.code);
+		return token_index;
+	}
+	return token_index;
 }
 
 byte register_macro_arg(macro_arg_map* const map, macro_arg arg){
@@ -1936,6 +1986,7 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 			t = comp->tokens[token_index];
 			token_index += 1;
 			if (t.type == MACRO_EVAL_TOKEN || t.type == IDENTIFIER_TOKEN){
+				ASSERT_LOCAL(terminator != CLOSE_MACRO_TOKEN, PARSERR " Cannot nest macro definitions" PARSERRFIX, t.text);
 				ir->type = MACRO_DEF;
 				ir->data.macro_eval = pool_request(comp->mem, sizeof(macro_def));
 				ir->data.macro_eval->args = NULL;

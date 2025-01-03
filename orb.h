@@ -219,7 +219,6 @@ typedef struct macro_def {
 		PUSH_EVAL,
 		MACRO_EVAL,
 		LABEL_EVAL,
-		SUBLABEL_EVAL,
 		NUMERIC_EVAL
 	} type;
 	macro_arg_map* args;
