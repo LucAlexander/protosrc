@@ -139,6 +139,14 @@ typedef enum {
 	REGISTER_TOKEN,
 	PART_TOKEN,
 	EXT_TOKEN,
+	SHORT_HEX_NUMERIC_TOKEN,
+	BYTE_HEX_NUMERIC_TOKEN,
+	DWORD_HEX_NUMERIC_TOKEN,
+	QWORD_HEX_NUMERIC_TOKEN,
+	IDENTIFIER_TOKEN,
+	OPEN_MACRO_TOKEN='[',
+	CLOSE_MACRO_TOKEN=']',	
+	MACRO_EVAL_TOKEN='=',
 	OPEN_CALL_TOKEN='(',
 	CLOSE_CALL_TOKEN=')',
 	OPEN_PUSH_TOKEN='{',
@@ -147,11 +155,6 @@ typedef enum {
 	INCLUDE_TOKEN='+',
 	SUBLABEL_TOKEN='.',
 	LABEL_TOKEN=':',
-	SHORT_HEX_NUMERIC_TOKEN,
-	BYTE_HEX_NUMERIC_TOKEN,
-	DWORD_HEX_NUMERIC_TOKEN,
-	QWORD_HEX_NUMERIC_TOKEN,
-	IDENTIFIER_TOKEN,
 	NONE_TOKEN
 } TOKEN;
 
@@ -171,12 +174,74 @@ typedef struct {
 typedef struct code_tree code_tree;
 typedef struct data_tree data_tree;
 typedef struct call_tree call_tree;
+typedef struct macro_tree macro_tree;
 typedef struct block_scope block_scope;
 
 typedef struct vm_code {
 	byte* instructions;
 	word instruction_count;
 } vm_code;
+
+typedef enum {
+	CALL_ARG,
+	PUSH_ARG,
+	REG_ARG,
+	LABEL_ARG,
+	SUBLABEL_ARG,
+	NUMERIC_ARG,
+	MACRO_ARG
+} ARG_TYPE;
+
+MAP_DEF(macro_arg)
+
+typedef struct macro_arg {
+	token name;
+	ARG_TYPE type;
+	byte not_defined;
+} macro_arg;
+
+typedef struct macro_def {
+	token name;
+	union {
+		code_tree* code;
+		data_tree* push;
+		call_tree* call;
+		int64_t number;
+		struct {
+			token label;
+			code_tree* dest_block;
+		} labeling;
+		macro_tree* macro;
+	} data;
+	enum {
+		CODE_EVAL,
+		CALL_EVAL,
+		PUSH_EVAL,
+		MACRO_EVAL,
+		LABEL_EVAL,
+		SUBLABEL_EVAL,
+		NUMERIC_EVAL
+	} type;
+	macro_arg_map* args;
+} macro_def;
+
+typedef struct macro_tree {
+	union {
+		token name;
+		code_tree* code;
+		data_tree* push;
+		call_tree* call;
+		struct {
+			token label;
+			code_tree* dest_block;
+		} labeling;
+		macro_tree* macro;
+		int64_t number;
+		byte reg;
+	} data;
+	macro_tree* next;
+	ARG_TYPE type;
+} macro_tree;
 
 typedef struct data_tree {
 	union {
@@ -186,12 +251,14 @@ typedef struct data_tree {
 		} bytes;
 		data_tree* nest;
 		code_tree* code;
+		macro_tree* macro;
 	} data;
 	data_tree* next;
 	enum {
 		BYTE_DATA,
 		NEST_DATA,
-		CODE_DATA
+		CODE_DATA,
+		MACRO_DATA
 	} type;
 } data_tree;
 
@@ -205,16 +272,10 @@ typedef struct call_tree {
 			code_tree* dest_block;
 		} labeling;
 		int64_t number;
+		macro_tree* macro;
 	} data;
 	call_tree* next;
-	enum {
-		CALL_ARG,
-		PUSH_ARG,
-		REG_ARG,
-		LABEL_ARG,
-		SUBLABEL_ARG,
-		NUMERIC_ARG
-	} type;
+	ARG_TYPE type;
 } call_tree;
 
 #define BLOCK_START_SIZE 8
@@ -226,6 +287,8 @@ typedef struct code_tree {
 	union {
 		data_tree* push;
 		call_tree* call;
+		macro_tree* macro;
+		macro_def* macro_eval;
 	} data;
 	code_tree* dest_block;
 	code_tree* next;
@@ -235,7 +298,9 @@ typedef struct code_tree {
 		INSTRUCTION_JUMP,
 		INSTRUCTION_SUBJUMP,
 		CALL_BLOCK,
-		PUSH_BLOCK
+		PUSH_BLOCK,
+		MACRO_USE,
+		MACRO_DEF
 	} type;
 	enum {
 		NOT_LABELED,
@@ -302,6 +367,8 @@ void loc_thunk_check_member(ltms* const stack, token t, byte(*f)(code_tree*, wor
 void ltms_push(ltms* stack);
 void ltms_pop(ltms* stack);
 
+byte register_macro_arg(macro_arg_map* const stack, macro_arg arg);
+
 typedef struct {
 	string str;
 	OPCODE_map opmap;
@@ -313,6 +380,7 @@ typedef struct {
 	code_tree* ir;
 	bsms labels;
 	ltms lines;
+	macro_arg_map* args;
 	pool* mem;
 	pool* code;
 	byte* buf;
