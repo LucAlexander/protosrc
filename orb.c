@@ -903,11 +903,46 @@ byte whitespace(char c){
 #define PARSERR " \033[1mParsing Error\033[0m "
 #define PARSERRFIX " at \033[1;31m %s\033[0m\n"
 
-byte lex_cstr(compiler* const comp){
-	comp->tokens = pool_request(comp->mem, sizeof(token));
-	comp->token_count = 0;
+byte lex_cstr(compiler* const comp, byte nested){
+	if (nested == 0){
+		comp->tokens = pool_request(comp->tok, sizeof(token));
+		comp->token_count = 0;
+	}
 	word line = 1;
+	byte include = 0;
 	while (comp->str.i < comp->str.size){
+		if (t != NULL){
+			if (include == 1){
+			   	ASSERT_LOCAL(t->type == IDENTIFIER_TOKEN, LEXERR " Expected name of included source file\n", line);
+				include = 0;
+				comp->token_count -= 2;
+				char* filename = pool_request(comp->mem, t.size+4);
+				strncpy(filename, t.text, t.size);
+				strcat(filename, ".src");
+				filename[t.size+4] = '\0';
+				FILE* inc = fopen(filename, "r");
+				ASSERT_LOCAL(inc != NULL, LEXERR " Could not find file '%s'\m", line);
+				word read_bytes = comp->mem->ptr;
+				word read_bytes = fread(inc_text, sizeof(byte), comp->mem->left, inc);
+				fclose(inc);
+				ASSERT_LOCAL(read_bytes < comp->mem->left, LEXERR " Included file '%s' too big\n", line);
+				pool_request(comp->mem, read_bytes);
+				compiler nested = {
+					.str.size = read_bytes,
+					.str.i = 0,
+					.str.text = inc_text,
+					.tokens = comp->tokens,
+					.token_count = comp->token_count,
+					.buf = NULL,
+					.err = comp->err
+				};
+				lex_cstr(&nested, 1);
+				ASSERT_ERR(0);
+			}
+			else if (include == 0 && t->type == INCLUDE_TOKEN){
+				include = 1;
+			}
+		}
 		token* t = &comp->tokens[comp->token_count];
 		t->text = &comp->str.text[comp->str.i];
 		t->size = 1;
@@ -962,7 +997,7 @@ byte lex_cstr(compiler* const comp){
 		case SUBLABEL_TOKEN:
 		case LABEL_TOKEN:
 			t->type = c;
-			pool_request(comp->mem, sizeof(token));
+			pool_request(comp->tok, sizeof(token));
 			comp->token_count += 1;
 			continue;
 		case STRING_TOKEN:
@@ -1002,7 +1037,7 @@ byte lex_cstr(compiler* const comp){
 				t->size += 1;
 				pool_request(comp->code, 1);
 			}
-			pool_request(comp->mem, sizeof(token));
+			pool_request(comp->tok, sizeof(token));
 			comp->token_count += 1;
 			continue;
 		case '-':
@@ -1076,7 +1111,7 @@ byte lex_cstr(compiler* const comp){
 				ASSERT_LOCAL(0, LEXERR " Too many bytes provided for hex numeric\n", line);
 			}
 			t->data.number = number;
-			pool_request(comp->mem, sizeof(token));
+			pool_request(comp->tok, sizeof(token));
 			comp->token_count += 1;
 			continue;
 		}
@@ -1097,7 +1132,7 @@ byte lex_cstr(compiler* const comp){
 			t->type = REGISTER_TOKEN;
 			t->data.reg = *r;
 			comp->str.text[comp->str.i] = copy;
-			pool_request(comp->mem, sizeof(token));
+			pool_request(comp->tok, sizeof(token));
 			comp->token_count += 1;
 			continue;
 		}
@@ -1106,7 +1141,7 @@ byte lex_cstr(compiler* const comp){
 			t->type = OPCODE_TOKEN;
 			t->data.opcode = *o;
 			comp->str.text[comp->str.i] = copy;
-			pool_request(comp->mem, sizeof(token));
+			pool_request(comp->tok, sizeof(token));
 			comp->token_count += 1;
 			continue;
 		}
@@ -1115,7 +1150,7 @@ byte lex_cstr(compiler* const comp){
 			t->type = PART_TOKEN;
 			t->data.part = *p;
 			comp->str.text[comp->str.i] = copy;
-			pool_request(comp->mem, sizeof(token));
+			pool_request(comp->tok, sizeof(token));
 			comp->token_count += 1;
 			continue;
 		}
@@ -1124,12 +1159,12 @@ byte lex_cstr(compiler* const comp){
 			t->type = EXT_TOKEN;
 			t->data.ext = *ex;
 			comp->str.text[comp->str.i] = copy;
-			pool_request(comp->mem, sizeof(token));
+			pool_request(comp->tok, sizeof(token));
 			comp->token_count += 1;
 			continue;
 		}
 		comp->str.text[comp->str.i] = copy;
-		pool_request(comp->mem, sizeof(token));
+		pool_request(comp->tok, sizeof(token));
 		comp->token_count += 1;
 	}
 	return 0;
@@ -1836,64 +1871,6 @@ byte register_macro_arg(macro_arg_map* const map, macro_arg arg){
 
 word parse_code(compiler* const comp, bsms* const sublabels, word token_index, code_tree* ir, TOKEN terminator){
 	code_tree* last = ir;
-	if (terminator == NONE_TOKEN){
-		while (token_index < comp->token_count){
-			token t = comp->tokens[token_index];
-			if (t.type != INCLUDE_TOKEN){
-				break;
-			}
-			token_index += 1;
-			ASSERT_LOCAL(terminator == NONE_TOKEN, PARSERR " Cannot include in nested code, only top level" PARSERRFIX, t.text);
-			t = comp->tokens[token_index];
-			token_index += 1;
-			char* filename = pool_request(comp->mem, t.size+4);
-			strncpy(filename, t.text, t.size);
-			strcat(filename, ".src");
-			filename[t.size+4] = '\0';
-			FILE* inc = fopen(filename, "r");
-			ASSERT_LOCAL(inc != NULL, PARSERR " Could not find file %s" PARSERRFIX, filename, t.text);
-			char* inc_text = comp->mem->ptr;
-			word read_bytes = fread(inc_text, sizeof(byte), comp->mem->left, inc);
-			fclose(inc);
-			ASSERT_LOCAL(read_bytes < comp->mem->left, PARSERR " Included file %s too big" PARSERRFIX, filename, t.text);
-			pool_request(comp->mem, read_bytes);
-			compiler nested = {
-				.str.size=read_bytes,
-				.str.i=0,
-				.str.text=inc_text,
-				.opmap=comp->opmap,
-				.regmap=comp->regmap,
-				.partmap=comp->partmap,
-				.extmap=comp->extmap,
-				.mem=comp->mem,
-				.code=comp->code,
-				.labels=comp->labels,
-				.buf=NULL,
-				.err = comp->err
-			};
-			lex_cstr(&nested);
-			nested.lines=comp->lines;
-			ir->prev = NULL;
-			parse_code(&nested, sublabels, 0, ir, NONE_TOKEN);
-			block_scope_map* submap = &sublabels->map[sublabels->size-1];
-			remaining_labels(&nested, submap);
-			ASSERT_ERR(0);
-			if (sublabels->size == 1){
-				pool_empty(submap->mem);
-			}
-			block_scope_map_empty(submap);
-			remaining_labels(&nested, &nested.labels.map[nested.labels.size-1]);
-			ASSERT_ERR(0);
-			while (ir->next != NULL){
-				ir = ir->next;
-			}
-			ir->next = pool_request(comp->mem, sizeof(code_tree));
-			last = ir;
-			ir = ir->next;
-			ir->labeling = NOT_LABELED;
-			ir->next = NULL;
-		}
-	}
 	while (token_index < comp->token_count){
 		token t = comp->tokens[token_index];
 		token_index += 1;
@@ -2144,6 +2121,7 @@ byte parse_tokens(compiler* const comp){
 	};
 	sublabels.map[0] = block_scope_map_init(&sublabel_pool);
 	comp->ir->prev = NULL;
+	comp->args = NULL;
 	parse_code(comp, &sublabels, token_index, comp->ir, NONE_TOKEN);
 	remaining_labels(comp, &sublabels.map[sublabels.size-1]);
 	pool_dealloc(&sublabel_pool);
@@ -3138,7 +3116,7 @@ void generate_code(compiler* const comp){
 //TODO macro blocks
 //TODO optimization pass
 byte compile_cstr(compiler* const comp){
-	lex_cstr(comp);
+	lex_cstr(comp, 0);
 	ASSERT_ERR(0);
 #ifdef ORB_DEBUG
 	show_tokens(comp);
@@ -3194,6 +3172,7 @@ void compile_file(char* infile, char* outfile){
 	setup_partition_map(&partmap);
 	setup_external_call_map(&extmap);
 	pool code = pool_alloc(WRITE_BUFFER_SIZE, POOL_STATIC);
+	pool tok = pool_alloc(READ_BUFFER_SIZE, POOL_STATIC);
 	compiler comp = {
 		.str = str,
 		.opmap = opmap,
@@ -3202,6 +3181,7 @@ void compile_file(char* infile, char* outfile){
 		.extmap = extmap,
 		.mem = &mem,
 		.code = &code,
+		.tok = &tok,
 		.buf = NULL,
 		.err = pool_request(&mem, ERROR_BUFFER)
 	};
@@ -3213,6 +3193,7 @@ void compile_file(char* infile, char* outfile){
 		fprintf(stderr, "\033[0m\n");
 		pool_dealloc(&mem);
 		pool_dealloc(&code);
+		pool_dealloc(&tok);
 		return;
 	}
 	fd = fopen(outfile, "w");
@@ -3220,6 +3201,7 @@ void compile_file(char* infile, char* outfile){
 		fprintf(stderr, "Unable to open file '%s' for writing\n", outfile);
 		pool_dealloc(&mem);
 		pool_dealloc(&code);
+		pool_dealloc(&tok);
 		return;
 	}
 	word bytes = 4*comp.lines.line[0];
@@ -3229,6 +3211,7 @@ void compile_file(char* infile, char* outfile){
 	fclose(fd);
 	pool_dealloc(&mem);
 	pool_dealloc(&code);
+	pool_dealloc(&tok);
 }
 
 void setup_registers(machine* const mach){

@@ -183,13 +183,13 @@ typedef struct vm_code {
 } vm_code;
 
 typedef enum {
-	CALL_ARG,
-	PUSH_ARG,
-	REG_ARG,
-	LABEL_ARG,
-	SUBLABEL_ARG,
-	NUMERIC_ARG,
-	MACRO_ARG
+	CALL_ARG,//TODO code, push, call
+	PUSH_ARG,//TODO code, push, call
+	REG_ARG,//TODO call target and arg, instruction
+	LABEL_ARG,//TODO jump, branch, call target and arg
+	SUBLABEL_ARG,//TODO same
+	NUMERIC_ARG,//TODO instruction, push, call arg
+	MACRO_ARG//TODO call, push, code, macro?
 } ARG_TYPE;
 
 MAP_DEF(macro_arg)
@@ -382,6 +382,7 @@ typedef struct {
 	macro_arg_map* args;
 	pool* mem;
 	pool* code;
+	pool* tok;
 	byte* buf;
 	char* err;
 } compiler;
@@ -395,7 +396,7 @@ void setup_opcode_map(OPCODE_map* opmap);
 void setup_register_map(REGISTER_map* regmap);
 void setup_partition_map(REG_PARTITION_map* partmap);
 byte whitespace(char c);
-byte lex_cstr(compiler* const comp);
+byte lex_cstr(compiler* const comp, byte nested);
 word parse_register(compiler* const comp, word token_index, byte* r);
 word parse_call_block(compiler* const comp, bsms* const sublabels, word token_index, call_tree* data);
 word parse_byte_sequence(compiler* const comp, word token_index, data_tree* data);
