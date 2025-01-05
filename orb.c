@@ -13,6 +13,7 @@ MAP_IMPL(EXTERNAL_CALLS)
 MAP_IMPL(block_scope)
 MAP_IMPL(loc_thunk)
 MAP_IMPL(macro_arg)
+MAP_IMPL(word)
 
 #define SHORT(lit) (lit&0xFF00)>>8, lit&0xFF
 #define NOP_                   NOP, 0,    0, 0
@@ -916,7 +917,7 @@ byte lex_cstr(compiler* const comp, byte nested){
 			   	ASSERT_LOCAL(t->type == IDENTIFIER_TOKEN, LEXERR " Expected name of included source file\n", line);
 				include = 0;
 				comp->token_count -= 2;
-				char* filename = pool_request(comp->mem, t.size+4);
+				char* filename = pool_request(comp->mem, t.size+5);
 				strncpy(filename, t.text, t.size);
 				strcat(filename, ".src");
 				filename[t.size+4] = '\0';
@@ -1781,7 +1782,7 @@ word parse_macro_definition(compiler* const comp, bsms* const sublabels, word to
 		arg->not_defined = 1;
 		char name = arg->name.text;
 		word size = arg->name.size;
-		char* new_name = pool_request(comp->mem, size);
+		char* new_name = pool_request(comp->mem, size+1);
 		strncpy(new_name, name, size);
 		new_name[size] = '\0';
 		macro_arg_map_insert(macro->argsm new_name, arg);
@@ -2020,7 +2021,7 @@ byte block_scope_add_member(block_scope_map* const block, token t, code_tree* me
 	node->type = FULFILLED_MEMBER;
 	node->next = NULL;
 	node->label = member;
-	char* new_name = pool_request(block->mem, size);
+	char* new_name = pool_request(block->mem, size+1);
 	strncpy(new_name, name, size);
 	new_name[size] = '\0';
 	block_scope_map_insert(block, new_name, node);
@@ -2054,7 +2055,7 @@ code_tree* block_scope_check_member(block_scope_map* const block, token t, code_
 	node->label = NULL;
 	node->pending_source = t;
 	node->ref = ref;
-	char* new_name = pool_request(block->mem, size);
+	char* new_name = pool_request(block->mem, size+1);
 	strncpy(new_name, name, size);
 	new_name[size] = '\0';
 	block_scope_map_insert(block, new_name, node);
@@ -2128,6 +2129,41 @@ byte parse_tokens(compiler* const comp){
 	ASSERT_ERR(0);
 	remaining_labels(comp, &comp->labels.map[comp->labels.size-1]);
 	ASSERT_ERR(0);
+	return 0;
+}
+
+byte parse_macro_definitions(compiler* const comp){
+	word token_index = 0;
+	word save_index = 0;
+	byte saved = 0;
+	while (token_index < comp->token_count){
+		token t = comp->tokens[token_index];
+		token_index += 1;
+		if (t.type == IDENTIFIER_TOKEN){
+			if (saved == 0){
+				saved = 1;
+				save_index = token_index;
+			}
+			continue;
+		}
+		saved = 0;
+		if (t.type == MACRO_EVAL_TOKEN){
+			ASSERT_LOCAL(saved == 1, PARSERR " Expected macro name before macro definition" PARSERRFIX, t.text);
+			t = comp->tokens[save_index];
+			char* name = pool_request(comp->mem, t.size+1);
+			strncpy(name, t.text, t.size);
+			name[t.size] = '\0';
+			byte dup = word_map_insert(comp->macro_defs, name, save_index);
+			ASSERT_LOCAL(dup == 0, PARSERR " Duplicate macro definition '%s'" PARSERRFIX, name, t.text)
+			while (token_index < comp->token_count){
+				t = comp->tokens[token_index];
+				token_index += 1;
+				if (t.type == CLOSE_MACRO_TOKEN){
+					break;
+				}
+			}
+		}
+	}
 	return 0;
 }
 
@@ -2993,7 +3029,7 @@ byte loc_thunk_add_member(ltms* const stack, token t){
 	node->label = t;
 	node->line = stack->line[stack->size-1]+1;
 	node->jump = NULL;
-	char* new_name = pool_request(thunk->mem, size);
+	char* new_name = pool_request(thunk->mem, size+1);
 	strncpy(new_name, name, size);
 	new_name[size] = '\0';
 	loc_thunk_map_insert(thunk, new_name, node);
@@ -3033,7 +3069,7 @@ void loc_thunk_check_member(ltms* const stack, token t, byte(*f)(code_tree*, wor
 	node->line = 0;
 	node->jump_line = stack->line[stack->size-1];
 	node->f = f;
-	char* new_name = pool_request(thunk->mem, size);
+	char* new_name = pool_request(thunk->mem, size+1);
 	strncpy(new_name, name, size);
 	new_name[size] = '\0';
 	loc_thunk_map_insert(thunk, new_name, node);
@@ -3122,6 +3158,8 @@ byte compile_cstr(compiler* const comp){
 	show_tokens(comp);
 	printf("\033[1;42mPARSING:\033[0m");
 #endif
+	parse_macro_definitions(comp);
+	ASSERT_ERR(0);
 	parse_tokens(comp);
 	ASSERT_ERR(0);
 #ifdef ORB_DEBUG
@@ -3173,12 +3211,14 @@ void compile_file(char* infile, char* outfile){
 	setup_external_call_map(&extmap);
 	pool code = pool_alloc(WRITE_BUFFER_SIZE, POOL_STATIC);
 	pool tok = pool_alloc(READ_BUFFER_SIZE, POOL_STATIC);
+	word_map macro_defs = word_map_init(&mem);
 	compiler comp = {
 		.str = str,
 		.opmap = opmap,
 		.regmap = regmap,
 		.partmap = partmap,
 		.extmap = extmap,
+		.macro_defs = macro_defs,
 		.mem = &mem,
 		.code = &code,
 		.tok = &tok,

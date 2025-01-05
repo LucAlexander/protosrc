@@ -368,6 +368,8 @@ void ltms_pop(ltms* stack);
 
 byte register_macro_arg(macro_arg_map* const stack, macro_arg arg);
 
+MAP_DEF(word)
+
 typedef struct {
 	string str;
 	OPCODE_map opmap;
@@ -380,6 +382,7 @@ typedef struct {
 	bsms labels;
 	ltms lines;
 	macro_arg_map* args;
+	word_map* macro_defs;
 	pool* mem;
 	pool* code;
 	pool* tok;
