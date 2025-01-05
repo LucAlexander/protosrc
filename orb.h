@@ -192,14 +192,6 @@ typedef enum {
 	MACRO_ARG//TODO call, push, code, macro?
 } ARG_TYPE;
 
-MAP_DEF(macro_arg)
-
-typedef struct macro_arg {
-	token name;
-	ARG_TYPE type;
-	byte not_defined;
-} macro_arg;
-
 typedef struct macro_def {
 	token name;
 	union {
@@ -226,7 +218,6 @@ typedef struct macro_def {
 
 typedef struct macro_tree {
 	union {
-		token name;
 		code_tree* code;
 		data_tree* push;
 		call_tree* call;
@@ -238,9 +229,10 @@ typedef struct macro_tree {
 		int64_t number;
 		byte reg;
 	} data;
-	macro_tree* next;
 	ARG_TYPE type;
 } macro_tree;
+
+MAP_DEF(macro_tree)
 
 typedef struct data_tree {
 	union {
@@ -379,7 +371,7 @@ typedef struct {
 	code_tree* ir;
 	bsms labels;
 	ltms lines;
-	macro_arg_map* args;
+	macro_tree_map* args;
 	word_map* macro_defs;
 	pool* mem;
 	pool* code;
