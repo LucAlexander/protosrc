@@ -144,9 +144,6 @@ typedef enum {
 	DWORD_HEX_NUMERIC_TOKEN,
 	QWORD_HEX_NUMERIC_TOKEN,
 	IDENTIFIER_TOKEN,
-	OPEN_MACRO_TOKEN='[',
-	CLOSE_MACRO_TOKEN=']',	
-	MACRO_EVAL_TOKEN='=',
 	OPEN_CALL_TOKEN='(',
 	CLOSE_CALL_TOKEN=')',
 	OPEN_PUSH_TOKEN='{',
@@ -174,7 +171,6 @@ typedef struct {
 typedef struct code_tree code_tree;
 typedef struct data_tree data_tree;
 typedef struct call_tree call_tree;
-typedef struct macro_tree macro_tree;
 typedef struct block_scope block_scope;
 
 typedef struct vm_code {
@@ -190,23 +186,6 @@ typedef enum {
 	SUBLABEL_ARG,
 	NUMERIC_ARG
 } ARG_TYPE;
-
-typedef struct macro_def {
-	union {
-		code_tree* code;
-		data_tree* push;
-		call_tree* call;
-		struct {
-			token label;
-			code_tree* dest_block;
-		} labeling;
-		int64_t number;
-		byte reg;
-	} data;
-	ARG_TYPE type;
-} macro_def;
-
-MAP_DEF(macro_def)
 
 typedef struct data_tree {
 	union {
@@ -325,10 +304,6 @@ void loc_thunk_check_member(ltms* const stack, token t, byte(*f)(code_tree*, wor
 void ltms_push(ltms* stack);
 void ltms_pop(ltms* stack);
 
-byte register_macro_arg(macro_arg_map* const map, macro_arg arg);
-
-MAP_DEF(word)
-
 typedef struct {
 	string str;
 	OPCODE_map opmap;
@@ -340,8 +315,6 @@ typedef struct {
 	code_tree* ir;
 	bsms labels;
 	ltms lines;
-	macro_tree_map* args;
-	word_map* macro_defs;
 	pool* mem;
 	pool* code;
 	pool* tok;
