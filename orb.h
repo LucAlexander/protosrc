@@ -287,7 +287,6 @@ typedef struct code_tree {
 		data_tree* push;
 		call_tree* call;
 		macro_tree* macro;
-		macro_def* macro_eval;
 	} data;
 	code_tree* dest_block;
 	code_tree* next;
@@ -298,8 +297,7 @@ typedef struct code_tree {
 		INSTRUCTION_SUBJUMP,
 		CALL_BLOCK,
 		PUSH_BLOCK,
-		MACRO_USE,
-		MACRO_DEF
+		MACRO_USE
 	} type;
 	enum {
 		NOT_LABELED,
@@ -366,7 +364,7 @@ void loc_thunk_check_member(ltms* const stack, token t, byte(*f)(code_tree*, wor
 void ltms_push(ltms* stack);
 void ltms_pop(ltms* stack);
 
-byte register_macro_arg(macro_arg_map* const stack, macro_arg arg);
+byte register_macro_arg(macro_arg_map* const map, macro_arg arg);
 
 MAP_DEF(word)
 

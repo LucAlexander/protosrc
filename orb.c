@@ -1964,18 +1964,21 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 			t = comp->tokens[token_index];
 			token_index += 1;
 			if (t.type == MACRO_EVAL_TOKEN || t.type == IDENTIFIER_TOKEN){
-				ASSERT_LOCAL(terminator != CLOSE_MACRO_TOKEN, PARSERR " Cannot nest macro definitions" PARSERRFIX, t.text);
-				ir->type = MACRO_DEF;
-				ir->data.macro_eval = pool_request(comp->mem, sizeof(macro_def));
-				ir->data.macro_eval->args = NULL;
-				token_index = parse_macro_definition(comp, sublabels, token_index-1, ir->data.macro_eval);
-				ASSERT_ERR(0);
-				ir->next = pool_request(comp->mem, sizeof(code_tree));
-				last = ir;
-				ir = ir->next;
-				ir->labeling = NOT_LABELED;
-				ir->prev = last;
-				ir->next = NULL;
+				int64_t brack_stack = 0;
+				while (token_index < comp->token_count){
+					t = comp->tokens[token_index];
+					token_index += 1;
+					if (t.type == CLOSE_MACRO_TOKEN){
+						if (brack_stack == 1){
+							break;
+						}
+						brack_stack -= 1;
+						ASSERT_LOCAL(brack_stack > 0, PARSERR " Bracket mismatch" PARSERRFIX, t.text);
+					}
+					else if (t.type == OPEN_MACRO_TOKEN){
+						brack_stack += 1
+					}
+				}
 				continue;
 			}
 			ASSERT_LOCAL(t.type == LABEL_TOKEN, PARSERR " Unexpected label" PARSERRFIX, t.text);
@@ -2154,12 +2157,20 @@ byte parse_macro_definitions(compiler* const comp){
 			strncpy(name, t.text, t.size);
 			name[t.size] = '\0';
 			byte dup = word_map_insert(comp->macro_defs, name, save_index);
-			ASSERT_LOCAL(dup == 0, PARSERR " Duplicate macro definition '%s'" PARSERRFIX, name, t.text)
+			ASSERT_LOCAL(dup == 0, PARSERR " Duplicate macro definition '%s'" PARSERRFIX, name, t.text);
+			int64_t stack = 0;
 			while (token_index < comp->token_count){
 				t = comp->tokens[token_index];
 				token_index += 1;
 				if (t.type == CLOSE_MACRO_TOKEN){
-					break;
+					if (stack == 1){
+						break;
+					}
+					stack -= 1;
+					ASSERT_LOCAL(stack > 0, PARSERR " Mismatched brackets in macro definition" PARSERRFIX, t.text);
+				}
+				else if (t.type = OPEN_MACRO_TOKEN){
+					stack += 1;
 				}
 			}
 		}
