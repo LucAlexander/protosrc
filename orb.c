@@ -12,7 +12,7 @@ MAP_IMPL(REG_PARTITION)
 MAP_IMPL(EXTERNAL_CALLS)
 MAP_IMPL(block_scope)
 MAP_IMPL(loc_thunk)
-MAP_IMPL(macro_tree)
+MAP_IMPL(macro_def)
 MAP_IMPL(word)
 
 #define SHORT(lit) (lit&0xFF00)>>8, lit&0xFF
@@ -1200,7 +1200,7 @@ void parse_string_bytes(compiler* const comp, word token_index, data_tree* data)
 	}
 }
 
-word parse_macro(compiler* const comp, bsms* const sublabels, word token_index, macro_tree* head, code_tree* caller){
+word parse_macro(compiler* const comp, bsms* const sublabels, word token_index, macro_def* definition){
 	token t = comp->tokens[token_index];
 	token_index += 1;
 	ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN, PARSERR " Expected identifier for macro name" PARSERRFIX, t.text);
@@ -1211,8 +1211,8 @@ word parse_macro(compiler* const comp, bsms* const sublabels, word token_index, 
 	word* dup_def_index = word_map_access(comp->macro_defs, name);
 	name[size] = save;
 	ASSERT_LOCAL(def_index != NULL, PARSERR " Unknown macro name" PARSERRFIX, t.text);
-	word def_index = *dup_def_index+1;
-	macro_tree_map_clear(comp->args);
+	word def_index = *(dup_def_index)+1;
+	macro_def_map_clear(comp->args);
 	while (token_index < comp->token_count){
 		token def_arg = comp->tokens[def_index];
 		def_index += 1;
@@ -1225,7 +1225,7 @@ word parse_macro(compiler* const comp, bsms* const sublabels, word token_index, 
 			ASSERT_LOCAL(t.type == CLOSE_MACRO_TOKEN, PARSERR "Too many arguments for macro" PARSERRFIX, t.text);
 			break;
 		}
-		macro_tree* macro = pool_request(comp->mem, sizeof(macro_tree));
+		macro_def* macro = pool_request(comp->mem, sizeof(macro_def));
 		char* new_name;
 		switch (t.type){
 		case QWORD_HEX_NUMERIC_TOKEN:
@@ -1236,9 +1236,7 @@ word parse_macro(compiler* const comp, bsms* const sublabels, word token_index, 
 			macro->data.number = t.data.number;
 			break;
 		case OPEN_MACRO_TOKEN:
-			macro->type = MACRO_ARG;
-			macro->data.macro = pool_request(comp->mem, sizeof(macro_tree));
-			token_index = parse_macro(comp, sublabels, token_index, macro->data.macro);
+			token_index = parse_macro(comp, sublabels, token_index, macro);
 			ASSERT_ERR(0);
 			break;
 		case CLOSE_MACRO_TOKEN:
@@ -1253,7 +1251,7 @@ word parse_macro(compiler* const comp, bsms* const sublabels, word token_index, 
 			break;
 		case STRING_TOKEN:
 			macro->type = PUSH_ARG;
-			macro->data.push = pool_request(comp->mem, sizeof(data_tree));
+			macro->data.push = pool_request(comp->mem, sizeof(push_tree));
 			macro->data.push->next = NULL;
 			parse_string_bytes(comp, token_index-1, macro->data.push);
 			break;
@@ -1276,7 +1274,7 @@ word parse_macro(compiler* const comp, bsms* const sublabels, word token_index, 
 			token_index += 1;
 			macro->type = SUBLABEL_ARG;
 			macro->data.labeling.label = t;
-			code_tree* subloc = block_scope_check_member(&sublabels->map[sublabels->size-1], t, &macro->data.labeling.dest_block);
+			code_def* subloc = block_scope_check_member(&sublabels->map[sublabels->size-1], t, &macro->data.labeling.dest_block);
 			if (subloc != NULL){
 				macro->data.labeling.dest_block = subloc;
 			}
@@ -1284,13 +1282,6 @@ word parse_macro(compiler* const comp, bsms* const sublabels, word token_index, 
 		case IDENTIFIER_TOKEN:
 			macro->type = LABEL_ARG;
 			macro->data.labeling.label = t;
-			for (byte map_i = 0;map_i<comp->labels.size;++map_i){
-				code_tree* loc = block_scope_check_member(&comp->labels.map[map_i], t, &macro->data.labeling.dest_block);
-				if (loc != NULL){
-					macro->data.labeling.dest_block = loc;
-					break;
-				}
-			}
 			break;
 		default:
 			ASSERT_LOCAL(0, PARSERR " Unexpected macro arg" PARSERRFIX, t.text);
@@ -1301,14 +1292,51 @@ word parse_macro(compiler* const comp, bsms* const sublabels, word token_index, 
 		new_name = pool_request(comp->mem, size+1);
 		strncpy(new_name, name, size);
 		new_name[size] = '\0';
-		byte dup = macro_tree_map_insert(comp->args, newname, macro);
+		byte dup = macro_def(comp->args, newname, macro);
 		ASSERT_LOCAL(dup == 0, PARSERR "Duplicate argument names in macro" PARSERRFIX, def_arg.text);
 	}
 	def_arg = comp->tokens[def_index];
 	def_index += 1;
-	//TODO need a way to pass more than just a code_tree* as the last argument to this function
 	switch (def_arg.type){
-	//TODO replace args inline during parsing, use defunct function parse_macro_definition as reference
+	case SHORT_HEX_NUMERIC_TOKEN:
+	case BYTE_HEX_NUMERIC_TOKEN:
+	case DWORD_HEX_NUMERIC_TOKEN:
+	case QWORD_HEX_NUMERIC_TOKEN:
+		definition->type = NUMERIC_ARG;
+		macro->data.number = def_arg.data.number;
+		return token_index;
+	case OPEN_CALL_TOKEN:
+		definition->type = CALL_ARG;
+		definition->data.call = pool_requset(comp->mem, sizeof(call_tree));
+		definition->data.call->next = NULL;
+		def_index = parse_call_block(comp, sublabels, def_index, definition->data.call);
+		return token_index;
+	case OPEN_PUSH_TOKEN:
+		definition->type = PUSH_ARG;
+		definition->data.push = pool_request(comp->mem, sizeof(date_tree));
+		definition->data.push->next = NULL;
+		def_index = parse_push_block(comp, sublabels, def_index, definition->data.push);
+		return token_index;
+	case OPEN_MACRO_TOKEN:
+		def_index = parse_macro(comp, sublabels, def_index, definition);
+		return token_index;
+	case IDENTIFIER_TOKEN:
+		word save_index = def_index;
+		token label_name = def_arg;
+		def_arg = comp->tokens[def_index];
+		def_index += 1;
+		if (def_arg.type == CLOSE_MACRO_TOKEN){
+			definition->type = LABEL_ARG;
+			definition->data.labeling.label = label_name;
+			return token_index;
+		}
+		def_index = save_index;
+	default:
+		definition->type = CODE_ARG;
+		definition->data.code = pool_request(comp->mem, sizeof(code_tree));
+		definition->data.code->next = NULL;
+		def_index = parse_code(comp, sublbels, def_index-1, dafinition->data.code);
+		return token_index;
 	}
 	return token_index;
 }
@@ -1330,10 +1358,30 @@ word parse_call_block(compiler* const comp, bsms* const sublabels, word token_in
 			data->next = NULL;
 			continue;
 		case OPEN_MACRO_TOKEN:
-			data->type = MACRO_ARG;
-			data->data.macro = pool_request(comp->mem, sizeof(macro_tree));
-			data->data.macro->next = NULL;
-			token_index = parse_macro(comp, sublabels, token_index, data->data.macro);
+			macro_def defmacro;
+			token_index = parse_macro(comp, sublabels, token_index, &defmacro);
+			data->type = defmacro.type;
+			{
+				switch(data->type){
+				case NUMERIC_ARG:
+					data->data.number = t.data.number;
+					break;
+				case LABEL_ARG:
+					//TODO
+					break;
+				case PUSH_ARG:
+					data->data.push = defmacro.data.push;
+					break;
+				case CALL_ARG:
+					data->data.call = defmacro.data.call;
+					break;
+				case CODE_ARG:
+					data->data.code = defmacro.data.code;
+					break;
+				default:
+					ASSERT_LOCAL(0, PARSERR " Unexpected macro evaluation\n" PARSERRFIX);
+				}
+			}
 			ASSERT_ERR(0);
 			data->next = pool_request(comp->mem, sizeof(call_tree));
 			last = data;
@@ -1496,10 +1544,24 @@ word parse_push_block(compiler* const comp, bsms* const sublabels, word token_in
 			data->next = NULL;
 			continue;
 		case OPEN_MACRO_TOKEN:
-			data->type = MACRO_DATA;
-			data->data.macro = pool_request(comp->mem, sizeof(macro_tree));
-			token_index = parse_macro(comp, sublabels, token_index, data->data.macro);
+			macro_def defmacro;
+			token_index = parse_macro(comp, sublabels, token_index, &defmacro);
 			ASSERT_ERR(0);
+			{
+				switch(defmacro.type){
+				case PUSH_ARG:
+					data->data.nest = defmacro.data.push;
+					break;
+				case CODE_ARG:
+					data->data.code = defmacro.data.code;
+					break;
+				case NUMERIC_ARG:
+				case LABEL_ARG:
+				case CALL_ARG:
+				default:
+					ASSERT_LOCAL(0, PARSERR " Unexpected macro evaluation\n" PARSERRFIX);
+				}
+			}
 			data->next = pool_request(comp->mem, sizeof(data_tree));
 			last = data;
 			data = data->next;
@@ -1769,84 +1831,6 @@ word parse_instruction_block(compiler* const comp, bsms* const sublabels, word t
 	return token_index;
 }
 
-word parse_macro_definition(compiler* const comp, bsms* const sublabels, word token_index, macro_def* macro){
-	token t = comp->tokens[token_index];
-	//TODO figure out what this needs to be: macro_arg_map_clear(comp->args);
-	while (token_index < comp->token_count){
-		t = comp->tokens[token_index];
-		if (token != IDENTIFIER_TOKEN){
-			break;
-		}
-		token_index += 1;
-		char name = t.text;
-		word size = t.size;
-		char* new_name = pool_request(comp->mem, size+1);
-		strncpy(new_name, name, size);
-		new_name[size] = '\0';
-		macro_arg_map_insert(macro->args, new_name, arg); // TODO and this
-	}
-	ASSERT_LOCAL(t.type == MACRO_EVAL_TOKEN, PARSERR " Expected macro evaluation defined by '='" PARSERRFIX, t.text);
-	token_index += 1;
-	t = comp->tokens[token_index];
-	ASSERT_LOCAL(t.type == OPEN_MACRO_TOKEN, PARSERR " Expected macro definition defined by '[...]'" PARSERRFIX, t.text);
-	token_index += 1;
-	t = comp->tokens[token_index];
-	comp->args = macro->args;
-	token_index += 1;
-	switch (t.type){
-	case SHORT_HEX_NUMERIC_TOKEN:
-	case BYTE_HEX_NUMERIC_TOKEN:
-	case DWORD_HEX_NUMERIC_TOKEN:
-	case QWORD_HEX_NUMERIC_TOKEN:
-		macro->type = NUMERIC_EVAL;
-		macro->data.number = t.data.number;
-		return token_index;
-	case OPEN_CALL_TOKEN:
-		macro->type = CALL_EVAL;
-		macro->data.call = pool_request(comp->mem, sizeof(call_tree));
-		macro->data.call->next = NULL;
-		token_index = parse_call_block(comp, sublabels, token_index, macro->data.call); // TODO figure out where this last arguments pointer comes from, should be inline code 
-		return token_index;
-	case OPEN_PUSH_TOKEN:
-		macro->type = PUSH_EVAL;
-		macro->data.push = pool_request(comp->mem, sizeof(data_tree));
-		macro->data.push->next = NULL;
-		token_index = parse_push_block(comp, sublabels, token_index, macro->data.push);
-		return token_index;
-	case OPEN_MACRO_TOKEN:
-		macro->type = MACRO_EVAL;
-		macro->data.macro = pool_request(comp->mem, sizeof(macro_tree));
-		macro->data.macro->next = NULL;
-		token_index = parse_macro(comp, sublabels, token_index, macro->data.macro);
-		return token_index;
-	case IDENTIFIER_TOKEN:
-		word save_index = token_index;
-		token label_name = t;
-		t = comp->tokens[token_index];
-		token_index += 1;
-		if (t.type == CLOSE_MACRO_TOKEN){
-			macro->type = LABEL_EVAL;
-			macro->data.labeling.label = label_name;
-			for (byte map_i = 0;map_i<comp->labels.size;++map_i){
-				code_tree* loc = block_scope_check_member(&comp->labels.map[map_i], t, &macro->data.labeling.dest_block);
-				if (loc != NULL){
-					macro->data.labeling.dest_block = loc;
-					break;
-				}
-			}
-			return token_index;
-		}
-		token_index = save_index;
-	default:
-		macro->type = CODE_EVAL;
-		macro->data.code = pool_request(comp->mem, sizeof(code_tree));
-		macro->data.code->next = NULL;
-		token_index = parse_code(comp, sublabels, token_index-1, macro->data.code);
-		return token_index;
-	}
-	return token_index;
-}
-
 word parse_code(compiler* const comp, bsms* const sublabels, word token_index, code_tree* ir, TOKEN terminator){
 	code_tree* last = ir;
 	while (token_index < comp->token_count){
@@ -1871,11 +1855,17 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 			ir->next = NULL;
 			continue;
 		case OPEN_MACRO_TOKEN:
-			ir->type = MACRO_USE;
-			ir->data.macro = pool_request(comp->mem, sizeof(macro_tree));
-			ir->data.macro->next = NULL;
-			token_index = parse_macro(comp, sublabels, token_index, ir->data.macro);
+			macro_def defmacro
+			token_index = parse_macro(comp, sublabels, token_index, &defmacro);
 			ASSERT_ERR(0);
+			{
+				switch (defmacro.type){
+				case CALL_ARG:
+				case PUSH_ARG:
+				case LABEL_ARG:
+				case NUMERIC_ARG
+				}
+			}
 			ir->next = pool_request(comp->mem, sizeof(code_tree));
 			last = ir;
 			ir = ir->next;
@@ -3135,6 +3125,8 @@ void generate_code(compiler* const comp){
 }
 
 //TODO macro blocks
+	//TODO replace args inline during parsing, use defunct function parse_macro_definition as reference
+	//TODO validate labels when encountered as argument replacements
 //TODO optimization pass
 byte compile_cstr(compiler* const comp){
 	lex_cstr(comp, 0);

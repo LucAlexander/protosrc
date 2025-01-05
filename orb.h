@@ -183,40 +183,15 @@ typedef struct vm_code {
 } vm_code;
 
 typedef enum {
-	CALL_ARG,//TODO code, push, call
-	PUSH_ARG,//TODO code, push, call
-	REG_ARG,//TODO call target and arg, instruction
-	LABEL_ARG,//TODO jump, branch, call target and arg
-	SUBLABEL_ARG,//TODO same
-	NUMERIC_ARG,//TODO instruction, push, call arg
-	MACRO_ARG//TODO call, push, code, macro?
+	CALL_ARG,
+	PUSH_ARG,
+	REG_ARG,
+	LABEL_ARG,
+	SUBLABEL_ARG,
+	NUMERIC_ARG
 } ARG_TYPE;
 
 typedef struct macro_def {
-	token name;
-	union {
-		code_tree* code;
-		data_tree* push;
-		call_tree* call;
-		int64_t number;
-		struct {
-			token label;
-			code_tree* dest_block;
-		} labeling;
-		macro_tree* macro;
-	} data;
-	enum {
-		CODE_EVAL,
-		CALL_EVAL,
-		PUSH_EVAL,
-		MACRO_EVAL,
-		LABEL_EVAL,
-		NUMERIC_EVAL
-	} type;
-	macro_arg_map* args;
-} macro_def;
-
-typedef struct macro_tree {
 	union {
 		code_tree* code;
 		data_tree* push;
@@ -225,14 +200,13 @@ typedef struct macro_tree {
 			token label;
 			code_tree* dest_block;
 		} labeling;
-		macro_tree* macro;
 		int64_t number;
 		byte reg;
 	} data;
 	ARG_TYPE type;
-} macro_tree;
+} macro_def;
 
-MAP_DEF(macro_tree)
+MAP_DEF(macro_def)
 
 typedef struct data_tree {
 	union {
@@ -242,14 +216,12 @@ typedef struct data_tree {
 		} bytes;
 		data_tree* nest;
 		code_tree* code;
-		macro_tree* macro;
 	} data;
 	data_tree* next;
 	enum {
 		BYTE_DATA,
 		NEST_DATA,
 		CODE_DATA,
-		MACRO_DATA
 	} type;
 } data_tree;
 
@@ -263,7 +235,6 @@ typedef struct call_tree {
 			code_tree* dest_block;
 		} labeling;
 		int64_t number;
-		macro_tree* macro;
 	} data;
 	call_tree* next;
 	ARG_TYPE type;
@@ -278,7 +249,6 @@ typedef struct code_tree {
 	union {
 		data_tree* push;
 		call_tree* call;
-		macro_tree* macro;
 	} data;
 	code_tree* dest_block;
 	code_tree* next;
@@ -289,7 +259,6 @@ typedef struct code_tree {
 		INSTRUCTION_SUBJUMP,
 		CALL_BLOCK,
 		PUSH_BLOCK,
-		MACRO_USE
 	} type;
 	enum {
 		NOT_LABELED,
