@@ -2399,14 +2399,14 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 	new_block->prev = basic_block;
 	new_block->code.instructions = pool_request(comp->code, 4*5);
 	new_block->code.instruction_count = 1;
-	comp->lines.line[comp->lines.size-1] += 1;
-	sublines->line[sublines->size-1] += 1;
 	instruction_index = 0;
 	if (function == NULL){
 		new_block->code.instructions[instruction_index++] = BNC;
 		new_block->code.instructions[instruction_index++] = 2;
 		new_block->code.instructions[instruction_index++] = 0;
 		new_block->code.instructions[instruction_index++] = REG(FULL, LR);
+		comp->lines.line[comp->lines.size-1] += 1;
+		sublines->line[sublines->size-1] += 1;
 	}
 	else{
 		switch (function->type){
@@ -2415,6 +2415,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 			new_block->code.instructions[instruction_index++] = 2;
 			new_block->code.instructions[instruction_index++] = 0;
 			new_block->code.instructions[instruction_index++] = function->data.reg;
+			comp->lines.line[comp->lines.size-1] += 1;
+			sublines->line[sublines->size-1] += 1;
 			break;
 		case LABEL_ARG:
 			new_block->dest = function->data.labeling.label;
@@ -2424,6 +2426,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 			new_block->code.instructions[instruction_index++] = 0;
 			new_block->code.instructions[instruction_index++] = 0;
 			loc_thunk_check_member(&comp->lines, new_block->dest, replace_call_dest, new_block);
+			comp->lines.line[comp->lines.size-1] += 1;
+			sublines->line[sublines->size-1] += 1;
 			break;
 		case SUBLABEL_ARG:
 			new_block->type = INSTRUCTION_SUBJUMP;
@@ -2434,12 +2438,16 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 			new_block->code.instructions[instruction_index++] = 0;
 			new_block->code.instructions[instruction_index++] = 0;
 			loc_thunk_check_member(sublines, new_block->dest, replace_call_dest, new_block);
+			comp->lines.line[comp->lines.size-1] += 1;
+			sublines->line[sublines->size-1] += 1;
 			break;
 		case NUMERIC_ARG:
 			new_block->code.instructions[instruction_index++] = BNC;
 			new_block->code.instructions[instruction_index++] = 1;
 			new_block->code.instructions[instruction_index++] = (function->data.number & 0xFF00) >> 8;
 			new_block->code.instructions[instruction_index++] = (function->data.number & 0xFF);
+			comp->lines.line[comp->lines.size-1] += 1;
+			sublines->line[sublines->size-1] += 1;
 			break;
 		case CALL_ARG:
 		case PUSH_ARG:
@@ -2641,7 +2649,7 @@ byte loc_thunk_add_member(ltms* const stack, token t){
 		}
 		node->type = FULFILLED_MEMBER;
 		while (node != NULL){
-			stack->changed[stack->size-1] |= node->f(node->jump, node->jump_line, stack->line[stack->size-1]+1);
+			stack->changed[stack->size-1] |= node->f(node->jump, node->jump_line, stack->line[stack->size-1]);
 			node = node->next;
 		}
 		return 0;
@@ -2650,7 +2658,7 @@ byte loc_thunk_add_member(ltms* const stack, token t){
 	node->type = FULFILLED_MEMBER;
 	node->next = NULL;
 	node->label = t;
-	node->line = stack->line[stack->size-1]+1;
+	node->line = stack->line[stack->size-1];
 	node->jump = NULL;
 	char* new_name = pool_request(thunk->mem, size+1);
 	strncpy(new_name, name, size);
