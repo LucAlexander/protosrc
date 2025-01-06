@@ -903,10 +903,45 @@ byte whitespace(char c){
 #define PARSERR " \033[1mParsing Error\033[0m "
 #define PARSERRFIX " at \033[1;31m %s\033[0m\n"
 
-byte lex_cstr(compiler* const comp, byte nested){
+#define ENTRYPOINT_CODE "(main) EXT END"
+
+void nest_lex_cstr(compiler* const comp, char* text, word size){
+	compiler nested = {
+		.str.size = size,
+		.str.i = 0,
+		.str.text = text,
+		.tokens = comp->tokens,
+		.token_count = comp->token_count,
+		.opmap = comp->opmap,
+		.regmap = comp->regmap,
+		.partmap = comp->partmap,
+		.extmap = comp->extmap,
+		.inclusions = comp->inclusions,
+		.mem = comp->mem,
+		.code = comp->code,
+		.tok = comp->tok,
+		.buf = NULL,
+		.err = comp->err
+	};
+	lex_cstr(&nested, 1, 1);
+	comp->token_count = nested.token_count;
+}
+
+void impute_entrypoint(compiler* const comp){
+	word size = strlen(ENTRYPOINT_CODE);
+	char* text = pool_request(comp->mem, size);
+	strcpy(text, ENTRYPOINT_CODE);
+	nest_lex_cstr(comp, text, size);
+}
+
+byte lex_cstr(compiler* const comp, byte nested, byte noentry){
 	if (nested == 0){
 		comp->tokens = pool_request(comp->tok, sizeof(token));
 		comp->token_count = 0;
+		if (noentry == 0){
+			impute_entrypoint(comp);
+			ASSERT_ERR(0);
+		}
 	}
 	word line = 1;
 	byte include = 0;
@@ -930,25 +965,7 @@ byte lex_cstr(compiler* const comp, byte nested){
 				fclose(inc);
 				ASSERT_LOCAL(read_bytes < comp->mem->left, LEXERR " Included file '%s' too big\n", line, filename);
 				pool_request(comp->mem, read_bytes);
-				compiler nested = {
-					.str.size = read_bytes,
-					.str.i = 0,
-					.str.text = inc_text,
-					.tokens = comp->tokens,
-					.token_count = comp->token_count,
-					.opmap = comp->opmap,
-					.regmap = comp->regmap,
-					.partmap = comp->partmap,
-					.extmap = comp->extmap,
-					.inclusions = comp->inclusions,
-					.mem = comp->mem,
-					.code = comp->code,
-					.tok = comp->tok,
-					.buf = NULL,
-					.err = comp->err
-				};
-				lex_cstr(&nested, 1);
-				comp->token_count = nested.token_count;
+				nest_lex_cstr(comp, inc_text, read_bytes);	
 				ASSERT_ERR(0);
 			}
 			else if (include == 0 && t->type == INCLUDE_TOKEN){
@@ -2794,8 +2811,8 @@ void generate_code(compiler* const comp){
 }
 
 //TODO optimization pass
-byte compile_cstr(compiler* const comp){
-	lex_cstr(comp, 0);
+byte compile_cstr(compiler* const comp, byte noentry){
+	lex_cstr(comp, 0, noentry);
 	ASSERT_ERR(0);
 #ifdef ORB_DEBUG
 	show_tokens(comp);
@@ -2817,7 +2834,7 @@ byte compile_cstr(compiler* const comp){
 	return 0;
 }
 
-void compile_file(char* infile, char* outfile){
+void compile_file(char* infile, char* outfile, byte noentry){
 	FILE* fd = fopen(infile, "r");
 	if (fd == NULL){
 		fprintf(stderr, "File '%s' not found\n", infile);
@@ -2867,7 +2884,7 @@ void compile_file(char* infile, char* outfile){
 		.err = pool_request(&mem, ERROR_BUFFER)
 	};
 	*comp.err = 0;
-	compile_cstr(&comp);
+	compile_cstr(&comp, noentry);
 	if (*comp.err != 0){
 		fprintf(stderr, "Unable to compile '%s'\n", infile);
 		fprintf(stderr, comp.err);
@@ -3020,15 +3037,20 @@ int32_t main(int argc, char** argv){
 		return 0;
 	}
 	if (strncmp(argv[1], "-c", TOKEN_MAX) == 0){
-		if (argc != 5){
-			printf(" Wrong number of arguments for compilation: -c infile.src -o outfile.rom\n");
+		if (argc < 5){
+			printf(" Wrong number of arguments for compilation: -c infile.src -o outfile.rom [optional: -noentry]\n");
 			return 0;
 		}
 		if (strncmp(argv[3], "-o", TOKEN_MAX) != 0){
 			printf(" Compilation requires '-o' to designate output file name\n");
 			return 0;
 		}
-		compile_file(argv[2], argv[4]);
+		if (argc < 6){
+			compile_file(argv[2], argv[4], 0);
+		}
+		else if (strncmp(argv[5], "-noentry", TOKEN_MAX) != 0){
+			compile_file(argv[2], argv[4], 1);
+		}
 		return 0;
 	}
 	if (strncmp(argv[1], "-r", TOKEN_MAX) == 0){
