@@ -7,7 +7,7 @@ main:
     ADS rA 0x1
     LDS rB 0xC
     EXT OUT
-    EXT END
+    REI
 
 ```
 
@@ -112,3 +112,17 @@ main:
  |  EXR     |  reg   |  0     |  0     |   EXR rE          |
  '----------'--------'--------'--------'-------------------'
 ```
+
+```
+(procedure 0xCAFE rA {0xDEAFBEEFFACECAFE}) 
+
+;evaluates to
+
+CAL
+PSS 0xCAFE 
+PSH rA
+{0xDEADBEEFFACECAFE}
+BNC procedure
+
+```
+
