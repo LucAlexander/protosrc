@@ -933,6 +933,10 @@ byte lex_cstr(compiler* const comp, byte nested){
 					.str.text = inc_text,
 					.tokens = comp->tokens,
 					.token_count = comp->token_count,
+					.opmap = comp->opmap,
+					.regmap = comp->regmap,
+					.partmap = comp->partmap,
+					.extmap = comp->extmap,
 					.mem = comp->mem,
 					.code = comp->code,
 					.tok = comp->tok,
@@ -940,6 +944,7 @@ byte lex_cstr(compiler* const comp, byte nested){
 					.err = comp->err
 				};
 				lex_cstr(&nested, 1);
+				comp->token_count = nested.token_count;
 				ASSERT_ERR(0);
 			}
 			else if (include == 0 && t->type == INCLUDE_TOKEN){
@@ -1703,7 +1708,7 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 			token sublabel_name = t;
 			t = comp->tokens[token_index];
 			token_index += 1;
-			ASSERT_LOCAL(t.type == LABEL_TOKEN, PARSERR " Unexpected label" PARSERRFIX, t.text);
+			ASSERT_LOCAL(t.type == LABEL_TOKEN, PARSERR " Expected label" PARSERRFIX, t.text);
 			ir->labeling = SUBLABELED;
 			ir->label = sublabel_name;
 			byte duplicate_sublabel = block_scope_add_member(&sublabels->map[sublabels->size-1], sublabel_name, ir);
@@ -1714,7 +1719,7 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 			token label_name = t;
 			t = comp->tokens[token_index];
 			token_index += 1;
-			ASSERT_LOCAL(t.type == LABEL_TOKEN, PARSERR " Unexpected label" PARSERRFIX, t.text);
+			ASSERT_LOCAL(t.type == LABEL_TOKEN, PARSERR " Expected label" PARSERRFIX, t.text);
 			ir->labeling = LABELED;
 			ir->label = label_name;
 			block_scope_map* submap = &sublabels->map[sublabels->size-1];
@@ -2394,7 +2399,9 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 	new_block->type = INSTRUCTION_JUMP;
 	new_block->labeling = NOT_LABELED;
 	new_block->next = basic_block->next;
-	new_block->next->prev = new_block;
+	if (basic_block->next != NULL){
+		new_block->next->prev = new_block;
+	}
 	basic_block->next = new_block;
 	new_block->prev = basic_block;
 	new_block->code.instructions = pool_request(comp->code, 4*5);
@@ -2457,7 +2464,9 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 	next_block->type = INSTRUCTION_BLOCK;
 	next_block->labeling = NOT_LABELED;
 	next_block->next = new_block->next;
-	next_block->next->prev = next_block;
+	if (new_block->next != NULL){
+		next_block->next->prev = next_block;
+	}
 	next_block->prev = new_block;
 	new_block->next = next_block;
 	next_block->code.instructions = pool_request(comp->code, 4);
@@ -2993,13 +3002,6 @@ void setup_machine(machine* const mach){
 }
 
 int32_t main(int argc, char** argv){
-#ifdef ORB_DEBUG
-	compile_file("lambda.src", "lambda.rom");
-	run_rom("lambda.rom");
-	compile_file("demo.src", "demo.rom");
-	run_rom("demo.rom");
-	return 0;
-#endif
 	if (argc <= 1){
 		printf(" -h for help\n");
 		return 0;
