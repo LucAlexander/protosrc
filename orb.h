@@ -304,12 +304,15 @@ void loc_thunk_check_member(ltms* const stack, token t, byte(*f)(code_tree*, wor
 void ltms_push(ltms* stack);
 void ltms_pop(ltms* stack);
 
+MAP_DEF(char)
+
 typedef struct {
 	string str;
 	OPCODE_map opmap;
 	REGISTER_map regmap;
 	REG_PARTITION_map partmap;
 	EXTERNAL_CALLS_map extmap;
+	char_map inclusions;
 	token* tokens;
 	word token_count;
 	code_tree* ir;

@@ -12,6 +12,7 @@ MAP_IMPL(REG_PARTITION)
 MAP_IMPL(EXTERNAL_CALLS)
 MAP_IMPL(block_scope)
 MAP_IMPL(loc_thunk)
+MAP_IMPL(char)
 
 #define SHORT(lit) (lit&0xFF00)>>8, lit&0xFF
 #define NOP_                   NOP, 0,    0, 0
@@ -920,6 +921,8 @@ byte lex_cstr(compiler* const comp, byte nested){
 				strncpy(filename, t->text, t->size);
 				strcat(filename, ".src");
 				filename[t->size+4] = '\0';
+				byte dup = char_map_insert(&comp->inclusions, filename, filename);
+				ASSERT_LOCAL(dup == 0, LEXERR " Duplicate inclusion '%s'\n", line, filename);
 				FILE* inc = fopen(filename, "r");
 				ASSERT_LOCAL(inc != NULL, LEXERR " Could not find file '%s'\n", line, filename);
 				char* inc_text = comp->mem->ptr;
@@ -937,6 +940,7 @@ byte lex_cstr(compiler* const comp, byte nested){
 					.regmap = comp->regmap,
 					.partmap = comp->partmap,
 					.extmap = comp->extmap,
+					.inclusions = comp->inclusions,
 					.mem = comp->mem,
 					.code = comp->code,
 					.tok = comp->tok,
@@ -2842,6 +2846,7 @@ void compile_file(char* infile, char* outfile){
 	REGISTER_map regmap = REGISTER_map_init(&mem);
 	REG_PARTITION_map partmap = REG_PARTITION_map_init(&mem);
 	EXTERNAL_CALLS_map extmap = EXTERNAL_CALLS_map_init(&mem);
+	char_map inclusions = char_map_init(&mem);
 	setup_opcode_map(&opmap);
 	setup_register_map(&regmap);
 	setup_partition_map(&partmap);
@@ -2854,6 +2859,7 @@ void compile_file(char* infile, char* outfile){
 		.regmap = regmap,
 		.partmap = partmap,
 		.extmap = extmap,
+		.inclusions = inclusions,
 		.mem = &mem,
 		.code = &code,
 		.tok = &tok,
