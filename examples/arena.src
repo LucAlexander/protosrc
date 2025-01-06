@@ -1,0 +1,42 @@
+
+arena_alloc: ; number of bytes
+	MOV rA CR
+	SUS rA 0x7
+	LDI rA rA 0x0
+	MOV rD rA
+	EXT MEM
+	MOV rB rA
+	MOV rC rA
+	ADS rB 0x10 ; create current pointer
+	ADD rD rA rD ; create last address
+	STB rB rC 0x0 ; store current pointer
+	ADS rC 0x8
+	STB rD rC 0x0 ; store last address
+	RET rA
+
+arena_request: ; arena address, number of bytes
+	MOV rA CR
+	SUS rA 0x7
+	LDI rB rA 0x0 ; arena addres
+	SUS rA 0x8
+	LDI rC rA 0x0 ; number of bytes
+	LDI rD rB 0x0 ; current pointer
+	ADS rB 0x8
+	LDI rE rB 0x0 ; last address
+	SUS rB 0x8
+	ADI rC rD     ; new pointer
+	CMP rC rE
+	JLT .allocate
+	RES 0x0
+.allocate:
+	STB rC rB 0x0 ; write new pointer to pointer address
+	RET rC
+
+;;
+main:
+	(arena_request
+		(arena_alloc 0xCAFE)
+		0x10
+	)
+	REI
+;;

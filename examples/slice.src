@@ -1,0 +1,48 @@
++arena
+
+slice_create: ; arena address, number of bytes
+	MOV rA CR
+	SUS rA 0x7
+	MOV rB rA
+	LDI rA rA 0x0 ; get arena argument
+	SUS rB 0x8
+	LDI rB rB 0x0 ; get size argument
+	ADS rB 0x8 ; make space for size word
+	(arena_request rA rB)
+	POP rA
+	STB rB rA 0x0 ; write size to first word
+	RET rA
+
+slice_zero: ; address
+	MOV rA CR
+	SUS rA 0x7
+	MOV rB rA ; copy start slice address
+	LDI rB rB 0x0 ; get start slice address
+	LDI rD rB 0x0 ; get length
+	ADS rB 0x8 ; get first element
+	LDS rC 0x0 ; i
+	LDS rE 0x0 ; zero
+.loop:
+	CMP rC rD
+	JGE .end
+	STB rE rB 0x0
+	ADS rB 0x8
+	ADS rC 0x8
+	JMP .loop
+.end:
+	RET rA
+
+main:
+	(arena_alloc 0xFF)
+	POP rA
+	(slice_zero
+		(slice_create rA 0x10)
+		"slices")
+	POP rA
+	LDS rB 0x10
+	EXT OUT
+	REI
+
+
+
+

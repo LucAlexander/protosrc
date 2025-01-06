@@ -1,0 +1,17 @@
+lambda:
+	LDI LR FP 0x29
+	ADS LR 0x4
+	CAL BNC
+	REI
+
+main: 
+	(lambda {
+		NOP 
+		"hello world\n"
+		MOV rA SP
+		ADS rA 0x1
+		LDS rB 0xC
+		EXT OUT
+		REI
+	} SP)
+	REI

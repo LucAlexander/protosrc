@@ -1,0 +1,113 @@
++hello
+
+NOP
+
+labels:
+	NOP NOP
+.sublabel:
+	NOP NOP
+
+loads:
+	LDS rA 0xDEAD ; single line comment
+	; second comment
+	LDS rB 0xFF
+	LDA rC rA rB
+	LDI rC rB 0xEE
+
+stores:
+	STS rD 0xFACE
+	STS rE 0xDD
+	;;
+		multi line comment
+	;;
+	STA rD rE rF
+	STB rD ;; second multi line comment ;; rF 0xCC
+
+memorys_ops:
+	MOV rG rH
+	SWP rH rI
+
+alu_ops:
+	ADS AR 0xAFFE
+	ADS AR 0xBB
+	ADI rA rB
+	ADD rC rA rB
+	INV rD rE
+	INI rF
+
+comparisons:
+	CMP rG rH
+	CMS rI 0xCAFE
+	CMS AR 0xAA
+
+calling_source:
+	CAL
+	PSH rA
+	PSS 0xBEEF
+	PSS 0x99
+	BNC rB
+	BNC 0xABCD
+	BNC 0x88
+	BNC
+	POP rC
+
+calling_destination:
+	REI
+	RES 0xC0DE
+	RES 0x66
+	RET rE
+
+system_calls:
+	EXT OUT
+	EXR rD
+  
+compound_pushes:
+	{ 
+		0xDEAD 0xBEEF 0xFACE 0xCAFE
+		{0xC0FF 0xEE00}
+		data_label: 
+			LDA rA rB rC
+			(system_calls (signs rA) rB {0xFFFF}) ; has access to outside, but no outside sublabels, nothing has access in
+		.data_sublabel:
+			POP rB
+		second_stack_label: 
+			NOP
+	} 
+	; no label from push block is accessible here
+
+procedure_calls: ; kill temp stack_scope
+	(system_calls rA 0x55 (calling_source rB) 0xCEDE calling_destination)
+.nested_call:
+	((comparisons rD) rC rF {0x0000 0x0000 0x0000 0x1234} rG)
+
+signs:
+	JMP -0x44
+	{
+		-0x7EBD
+		-0x0001
+		-0x01
+		0x1
+		-0x1
+	}
+
+larger_literals:
+	{
+		0xDEADBEEFFACECAFE
+		0xDEADBEEF 0xFACECAFE
+		"hello world"
+	}
+	"hola mundo"
+	(larger_literals "halo welt")
+
+label_dynamics:
+	NOP NOP NOP NOP
+	(.sublabel)
+.sublabel:
+	(.non_duplicate)
+	NOP
+	(label_dynamics)
+.non_duplicate:
+	(.sublabel)
+	(.non_duplicate)
+	NOP
+

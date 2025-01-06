@@ -113,7 +113,7 @@ main:
  '----------'--------'--------'--------'-------------------'
 ```
 
-```
+```asm
 (procedure 0xCAFE rA {0xDEAFBEEFFACECAFE}) 
 
 ;evaluates to
