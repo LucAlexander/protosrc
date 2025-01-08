@@ -144,6 +144,10 @@ typedef enum {
 	DWORD_HEX_NUMERIC_TOKEN,
 	QWORD_HEX_NUMERIC_TOKEN,
 	IDENTIFIER_TOKEN,
+	SYMBOL_TOKEN,
+	OPEN_MACRO_TOKEN='[',
+	CLOSE_MACRO_TOKEN=']',	
+	EVAL_MACRO_TOKEN='=',
 	OPEN_CALL_TOKEN='(',
 	CLOSE_CALL_TOKEN=')',
 	OPEN_PUSH_TOKEN='{',
@@ -151,6 +155,7 @@ typedef enum {
 	STRING_TOKEN='"',
 	INCLUDE_TOKEN='+',
 	SUBLABEL_TOKEN='.',
+	MACRO_ARG_SEP_TOKEN=',',
 	LABEL_TOKEN=':',
 	NONE_TOKEN
 } TOKEN;
@@ -305,6 +310,28 @@ void ltms_push(ltms* stack);
 void ltms_pop(ltms* stack);
 
 MAP_DEF(char)
+MAP_DEF(word)
+
+typedef struct macro {
+	word_map args;
+	word start;
+	word end;
+	word defstart;
+} macro;
+
+MAP_DEF(macro);
+
+typedef struct macro_call macro_call;
+
+typedef struct macro_call {
+	word arg_index[8];
+	word arg_length[8];
+	word arg_count;
+	word start;
+	word end;
+	macro_call* next;
+	macro_call* prev;
+} macro_call;
 
 typedef struct {
 	string str;
@@ -315,12 +342,15 @@ typedef struct {
 	char_map inclusions;
 	token* tokens;
 	word token_count;
+	macro_map macros;
+	macro_call* macro_calls;
 	code_tree* ir;
 	bsms labels;
 	ltms lines;
 	pool* mem;
 	pool* code;
 	pool* tok;
+	pool* tok_swp;
 	byte* buf;
 	char* err;
 } compiler;
@@ -334,6 +364,8 @@ void setup_opcode_map(OPCODE_map* opmap);
 void setup_register_map(REGISTER_map* regmap);
 void setup_partition_map(REG_PARTITION_map* partmap);
 byte whitespace(char c);
+byte issymbol(char c);
+void lex_symbol(compiler* const comp, token* t);
 void nest_lex_cstr(compiler* const comp, char* text, word size);
 void impute_entrypoint(compiler* const comp);
 byte lex_cstr(compiler* const comp, byte nested, byte noentry);
@@ -352,6 +384,9 @@ byte show_call(compiler* const comp, call_tree* const data, word depth);
 byte show_data(compiler* const comp, data_tree* const data, word depth);
 byte show_block(compiler* const comp, code_tree* const code, word depth);
 void show_tokens(compiler* const comp);
+byte find_macros(compiler* const comp, pool* const aux);
+byte replace_macros(compiler* const comp, pool* const aux);
+byte flatten_macro_definitions(compiler* const comp);
 byte compile_cstr(compiler* const comp, byte noentry);
 void compile_file(char* infile, char* outfile, byte noentry);
 void flash_rom(machine* const mach, byte* buffer, uint64_t size);

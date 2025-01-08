@@ -1,0 +1,20 @@
+assert condition = [
+	condition
+	POP AR
+	CMS AR 0x0
+	JNE 0x2
+	EXT END
+]
+
+zero:
+	LDS AR 0x0
+	RET AR
+
+main:
+	[assert (zero)]
+	"\e[1;34mhello world\n\e[0m"
+	MOV rA SP
+	ADS rA 0x1
+	LDS rB 0x18
+	EXT OUT
+	REI

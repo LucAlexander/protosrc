@@ -1,3 +1,6 @@
 orb
 hla.txt
 *.rom
+auto.sh
+valgr.out
+valgrind.sh

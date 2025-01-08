@@ -13,6 +13,8 @@ MAP_IMPL(EXTERNAL_CALLS)
 MAP_IMPL(block_scope)
 MAP_IMPL(loc_thunk)
 MAP_IMPL(char)
+MAP_IMPL(word)
+MAP_IMPL(macro)
 
 #define SHORT(lit) (lit&0xFF00)>>8, lit&0xFF
 #define NOP_                   NOP, 0,    0, 0
@@ -525,6 +527,7 @@ void interpret(machine* const mach, byte debug){
 		case RET: {
 				byte tar = NEXT;
 				mach->reg[SP] = mach->reg[FP];
+				word preserve; ACCESS_REG(preserve, tar);
 				POP_REG(REG(FULL,AR));
 				POP_REG(REG(FULL,CR));
 				POP_REG(REG(FULL,LR));
@@ -532,7 +535,10 @@ void interpret(machine* const mach, byte debug){
 				POP_REG(REG(FULL,IP));
 				mach->reg[SP] = mach->reg[CR];
 				POP_REG(REG(FULL,CR));
-				PUSH_REG(tar);
+				word temp = mach->reg[AR];
+				mach->reg[AR] = preserve;
+				PUSH_REG(REG(FULL, AR));
+				mach->reg[AR] = temp;
 				mach->reg[IP] += 1;
 			} break;
 		case REI: {
@@ -934,6 +940,29 @@ void impute_entrypoint(compiler* const comp){
 	nest_lex_cstr(comp, text, size);
 }
 
+byte issymbol(char c){
+	return (
+		(c > ' ' && c < '0') ||
+		(c > ';' && c < 'A') ||
+		(c > '[' && c < '_') ||
+		(c == '~') ||
+		(c == '|')
+	);
+}
+
+void lex_symbol(compiler* const comp, token* t){
+	t->type = SYMBOL_TOKEN;
+	while (comp->str.i < comp->str.size){
+		char c = comp->str.text[comp->str.i];
+		if (issymbol(c)){
+			t->size += 1;
+		}
+		comp->str.i += 1;
+		return;
+	}
+	return;
+}
+
 byte lex_cstr(compiler* const comp, byte nested, byte noentry){
 	if (nested == 0){
 		comp->tokens = pool_request(comp->tok, sizeof(token));
@@ -1015,12 +1044,16 @@ byte lex_cstr(compiler* const comp, byte nested, byte noentry){
 				}
 			}
 			continue;
+		case OPEN_MACRO_TOKEN:
+		case CLOSE_MACRO_TOKEN:
+		case EVAL_MACRO_TOKEN:
 		case OPEN_CALL_TOKEN:
 		case CLOSE_CALL_TOKEN:
 		case OPEN_PUSH_TOKEN:
 		case CLOSE_PUSH_TOKEN:
 		case INCLUDE_TOKEN:
 		case SUBLABEL_TOKEN:
+		case MACRO_ARG_SEP_TOKEN:
 		case LABEL_TOKEN:
 			t->type = c;
 			pool_request(comp->tok, sizeof(token));
@@ -1068,8 +1101,13 @@ byte lex_cstr(compiler* const comp, byte nested, byte noentry){
 			continue;
 		case '-':
 			c = comp->str.text[comp->str.i];
-			ASSERT_LOCAL(c=='0', LEXERR " Expected numeric after '-'\n", line);
 			comp->str.i += 1;
+			if (c != '0'){
+				lex_symbol(comp, t);
+				pool_request(comp->tok, sizeof(token));
+				comp->token_count += 1;
+				continue;
+			}
 			t->size += 1;
 			negative = 1;
 		case '0':
@@ -1141,6 +1179,12 @@ byte lex_cstr(compiler* const comp, byte nested, byte noentry){
 			comp->token_count += 1;
 			continue;
 		}
+		if (issymbol(c)){
+			lex_symbol(comp, t);
+			pool_request(comp->tok, sizeof(token));
+			comp->token_count += 1;
+			continue;
+		}
 		ASSERT_LOCAL(c == '_' || isalpha(c), LEXERR " Expected identifier\n", line);
 		t->type = IDENTIFIER_TOKEN;
 		while (comp->str.i < comp->str.size){
@@ -1193,6 +1237,221 @@ byte lex_cstr(compiler* const comp, byte nested, byte noentry){
 		pool_request(comp->tok, sizeof(token));
 		comp->token_count += 1;
 	}
+	return 0;
+}
+
+byte find_macros(compiler* const comp, pool* const aux){
+	byte found = 0;
+	word token_index = 0;
+	while (token_index < comp->token_count){
+		token t = comp->tokens[token_index];
+		token_index += 1;
+		if (t.type != IDENTIFIER_TOKEN && t.type != SYMBOL_TOKEN){
+			if (t.type == OPEN_MACRO_TOKEN){
+				word start = token_index-1;
+				t = comp->tokens[token_index];
+				token_index += 1;
+				ASSERT_LOCAL(t.type == IDENTIFIER_TOKEN || t.type == SYMBOL_TOKEN);
+				word last_arg_index = token_index;
+				int64_t nest = 0;
+				word arg_index[8];
+				word arg_length[8];
+				word arg_count = 0;
+				while (t.type != CLOSE_MACRO_TOKEN){
+					t = comp->tokens[token_index];
+					token_index += 1;
+					if (t.type == MACRO_ARG_SEP_TOKEN){
+						if (nest > 0){
+							continue;
+						}
+						arg_index[arg_count] = last_arg_index;
+						arg_length[arg_count] = (token_index - 1)  - last_arg_index;
+						last_arg_index = token_index;
+						arg_count += 1;
+					}
+					else if (t.type == CLOSE_MACRO_TOKEN){
+						if (nest == 0){
+							if (last_arg_index != token_index-1){
+								arg_index[arg_count] = last_arg_index;
+								arg_length[arg_count] = (token_index-1)-last_arg_index;
+								arg_count += 1;
+							}
+							break;
+						}
+						nest -= 1;
+					}
+					else if (t.type == OPEN_MACRO_TOKEN){
+						nest += 1;
+					}
+				}
+				word end = token_index-1;
+				if (comp->macro_calls == NULL){
+					comp->macro_calls = pool_request(aux, sizeof(macro_call));
+					comp->macro_calls->start = start;
+					comp->macro_calls->end = end;
+					comp->macro_calls->next = NULL;
+					comp->macro_calls->prev = NULL;
+					comp->macro_calls->arg_count = arg_count;
+					for (byte i = 0;i<arg_count;++i){
+						comp->macro_calls->arg_index[i] = arg_index[i];
+						comp->macro_calls->arg_length[i] = arg_length[i];
+					}
+				}
+				else{
+					macro_call* node = comp->macro_calls;
+					macro_call* new = pool_request(aux, sizeof(macro_call));
+					new->start = start;
+					new->end = end;
+					new->next = NULL;
+					new->prev = NULL;
+					new->arg_count = arg_count;
+					for (byte i = 0;i<arg_count;++i){
+						new->arg_index[i] = arg_index[i];
+						new->arg_length[i] = arg_length[i];
+					}
+					byte added = 0;
+					while (node->next != NULL){
+						if ((start > node->start) && (end < node->end)){
+							added = 1;
+							break;		
+						}
+						else if (start < node->start){
+							if (node->prev == NULL){
+								new->next = node;
+								comp->macro_calls = new;
+								added = 1;
+								break;
+							}
+							new->prev = node->prev;
+							node->prev = new;
+							new->next = node;
+							added = 1;
+							break;
+						}
+						node = node->next;
+					}
+					if (node->next == NULL && (added == 0)){
+						node->next = new;
+						new->prev = node;
+					}
+				}
+				found = 1;
+			}
+			continue;
+		}
+		word name_index = token_index-1;
+		token mname = t;
+		t = comp->tokens[token_index];
+		token_index += 1;
+		macro m = {
+			.args = word_map_init(comp->mem),
+			.start = 0,
+			.end = 0
+		};
+		while (t.type == IDENTIFIER_TOKEN){
+			char* argname = pool_request(aux, t.size+1);
+			strncpy(argname, t.text, t.size);
+			argname[t.size] = '\0';
+			word* location = pool_request(aux, sizeof(word));
+			*location = (token_index - 1) - name_index;
+			byte dup = word_map_insert(&m.args, argname, location);
+			ASSERT_LOCAL(dup == 0, PARSERR " Duplicate arg name for macro: '%s'" PARSERRFIX, argname, t.text);
+			t = comp->tokens[token_index];
+			token_index += 1;
+		}
+		if (t.type != EVAL_MACRO_TOKEN){
+			continue;
+		}
+		t = comp->tokens[token_index];
+		token_index += 1;
+		ASSERT_LOCAL(t.type == OPEN_MACRO_TOKEN);
+		int64_t nest = 0;
+		m.start = token_index;
+		while (t.type != CLOSE_MACRO_TOKEN){
+			t = comp->tokens[token_index];
+			token_index += 1;
+			if (t.type == CLOSE_MACRO_TOKEN){
+				if (nest == 0){
+					m.end = token_index-1;
+					break;
+				}
+				nest -= 1;
+			}
+			else if (t.type == OPEN_MACRO_TOKEN){
+				nest += 1;
+			}
+		}
+		m.defstart = name_index;
+		char* macroname = pool_request(aux, mname.size+1);
+		strncpy(macroname, mname.text, mname.size);
+		macroname[mname.size] = '\0';
+		macro* poolmacro = pool_request(comp->mem, sizeof(macro));
+		*poolmacro = m;
+		byte dup = macro_map_insert(&comp->macros, macroname, poolmacro);
+		ASSERT_LOCAL(dup == 0, PARSERR " Duplicate macro '%s'" PARSERRFIX, macroname, mname.text);
+	}
+	return found;
+}
+
+byte replace_macros(compiler* const comp, pool* const aux){
+	token* new = pool_request(comp->tok_swp, sizeof(token));
+	word token_index = 0;
+	word new_index = 0;
+	macro_call* node = comp->macro_calls;
+	while (node != NULL){
+		word elems = node->start - token_index;
+		pool_request(comp->tok_swp, sizeof(token)*elems);
+		memcpy(&new[new_index], &comp->tokens[token_index], elems*sizeof(token));
+		new_index += elems;
+		token_index += elems;
+		token_index += 1;
+		token macro_name = comp->tokens[token_index];
+		char* name = macro_name.text;
+		word size = macro_name.size;
+		char save = name[size];
+		name[size] = '\0';
+		macro* target = macro_map_access(&comp->macros, name);
+		ASSERT_LOCAL(target != NULL, " Macro '%s' which was marked as existing, does not\n", name);
+		name[size] = save;
+		token_index = target->start;
+		while (token_index < target->end){
+			token* t = &comp->tokens[token_index];
+			token_index += 1;
+			if (t->type == IDENTIFIER_TOKEN){
+				char save = t->text[t->size];
+				t->text[t->size] = '\0';
+				word* isarg = word_map_access(&target->args, t->text);
+				t->text[t->size] = save;
+				if (isarg != NULL){
+					word arg_index = (*isarg) - 1;
+					ASSERT_LOCAL(arg_index <= node->arg_count, " Not enough arguments passed for macro %s\n", t->text);
+					word start = node->arg_index[arg_index];
+					word length = node->arg_length[arg_index];
+					word end = start+length;
+					while (start < end){
+						new[new_index] = comp->tokens[start];
+						start += 1;
+						pool_request(comp->tok_swp, sizeof(token));
+						new_index += 1;
+					}
+					continue;
+				}
+			}
+			new[new_index] = *t;
+			pool_request(comp->tok_swp, sizeof(token));
+			new_index += 1;
+		}
+		token_index = node->end+1;
+		node = node->next;
+	}
+	if (token_index < comp->token_count){
+		word diff = comp->token_count - token_index;
+		pool_request(comp->tok_swp, sizeof(token)*diff);
+		memcpy(&new[new_index], &comp->tokens[token_index], diff*sizeof(token));
+		new_index += diff;
+	}
+	comp->token_count = new_index;
+	comp->tokens = new;
 	return 0;
 }
 
@@ -1740,6 +1999,23 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 			token label_name = t;
 			t = comp->tokens[token_index];
 			token_index += 1;
+			if (t.type == IDENTIFIER_TOKEN){
+				int64_t nest = 0;
+				while (t.type != CLOSE_MACRO_TOKEN){
+					t = comp->tokens[token_index];
+					token_index += 1;
+					if (t.type == CLOSE_MACRO_TOKEN){
+						if (nest == 0){
+							break;
+						}
+						nest -= 1;
+					}
+					else if (t.type == OPEN_MACRO_TOKEN){
+						nest += 1;
+					}
+				}
+				continue;
+			}
 			ASSERT_LOCAL(t.type == LABEL_TOKEN, PARSERR " Expected label" PARSERRFIX, t.text);
 			ir->labeling = LABELED;
 			ir->label = label_name;
@@ -2096,6 +2372,21 @@ void show_tokens(compiler* const comp){
 			break;
 		case EXT_TOKEN:
 			printf("EXTERNAL %u ", comp->tokens[i].data.ext);
+			break;
+		case OPEN_MACRO_TOKEN:
+			printf("OPEN MACRO ");
+			break;
+		case CLOSE_MACRO_TOKEN:
+			printf("CLOSE MACRO ");
+			break;
+		case EVAL_MACRO_TOKEN:
+			printf("MACRO EVAL ");
+			break;
+		case MACRO_ARG_SEP_TOKEN:
+			printf("ARG SEP ");
+			break;
+		case SYMBOL_TOKEN:
+			printf("SYMBOL TOKEN: ");
 			break;
 		case OPEN_CALL_TOKEN:
 			printf("OPEN CALL ");
@@ -2810,9 +3101,39 @@ void generate_code(compiler* const comp){
 	}
 }
 
+byte flatten_macro_definitions(compiler* const comp){
+	pool* aux = pool_request(comp->mem, sizeof(pool));
+	*aux = pool_alloc(AUX_SIZE, POOL_STATIC);
+	while (find_macros(comp, aux) == 1){
+		replace_macros(comp, aux);
+		if (*comp->err != 0){
+			break;
+		}
+#ifdef ORB_DEBUG
+		show_tokens(comp);
+#endif
+		pool* temp = comp->tok;
+		comp->tok = comp->tok_swp;
+		comp->tok_swp = temp;
+		pool_empty(comp->tok_swp);
+		pool_empty(aux);
+		macro_map_empty(&comp->macros);
+		comp->macro_calls = NULL;
+	}
+	pool_dealloc(aux);
+	return 0;
+}
+
+//TODO text macros
 //TODO optimization pass
 byte compile_cstr(compiler* const comp, byte noentry){
 	lex_cstr(comp, 0, noentry);
+	ASSERT_ERR(0);
+#ifdef ORB_DEBUG
+	show_tokens(comp);
+	printf("\033[1;42mFLATTENING MACROS:\033[0m");
+#endif
+	flatten_macro_definitions(comp);
 	ASSERT_ERR(0);
 #ifdef ORB_DEBUG
 	show_tokens(comp);
@@ -2864,12 +3185,14 @@ void compile_file(char* infile, char* outfile, byte noentry){
 	REG_PARTITION_map partmap = REG_PARTITION_map_init(&mem);
 	EXTERNAL_CALLS_map extmap = EXTERNAL_CALLS_map_init(&mem);
 	char_map inclusions = char_map_init(&mem);
+	macro_map macros = macro_map_init(&mem);
 	setup_opcode_map(&opmap);
 	setup_register_map(&regmap);
 	setup_partition_map(&partmap);
 	setup_external_call_map(&extmap);
 	pool code = pool_alloc(WRITE_BUFFER_SIZE, POOL_STATIC);
 	pool tok = pool_alloc(READ_BUFFER_SIZE, POOL_STATIC);
+	pool tok_swp = pool_alloc(READ_BUFFER_SIZE, POOL_STATIC);
 	compiler comp = {
 		.str = str,
 		.opmap = opmap,
@@ -2877,9 +3200,12 @@ void compile_file(char* infile, char* outfile, byte noentry){
 		.partmap = partmap,
 		.extmap = extmap,
 		.inclusions = inclusions,
+		.macros = macros,
+		.macro_calls = NULL,
 		.mem = &mem,
 		.code = &code,
 		.tok = &tok,
+		.tok_swp = &tok_swp,
 		.buf = NULL,
 		.err = pool_request(&mem, ERROR_BUFFER)
 	};
@@ -2892,6 +3218,7 @@ void compile_file(char* infile, char* outfile, byte noentry){
 		pool_dealloc(&mem);
 		pool_dealloc(&code);
 		pool_dealloc(&tok);
+		pool_dealloc(&tok_swp);
 		return;
 	}
 	fd = fopen(outfile, "w");
@@ -2900,6 +3227,7 @@ void compile_file(char* infile, char* outfile, byte noentry){
 		pool_dealloc(&mem);
 		pool_dealloc(&code);
 		pool_dealloc(&tok);
+		pool_dealloc(&tok_swp);
 		return;
 	}
 	word bytes = 4*comp.lines.line[0];
@@ -2910,6 +3238,7 @@ void compile_file(char* infile, char* outfile, byte noentry){
 	pool_dealloc(&mem);
 	pool_dealloc(&code);
 	pool_dealloc(&tok);
+	pool_dealloc(&tok_swp);
 }
 
 void setup_registers(machine* const mach){
