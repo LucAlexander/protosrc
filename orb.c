@@ -465,11 +465,7 @@ interpret(machine* const mach, byte debug){
 	while (1){
 		if (clock++ % 10000 == 0){
 			poll_input(mach);
-			int32_t texture_pitch = 0;
-			void* texture_pixels = NULL;
-			SDL_LockTexture(texture, NULL, &texture_pixels, &texture_pitch);
-			memcpy(texture_pixels, mach->frame_buffer, texture_pitch * SCREEN_HEIGHT);
-			SDL_UnlockTexture(texture);
+			SDL_UpdateTexture(texture, NULL, mach->frame_buffer, SCREEN_WIDTH*sizeof(uint32_t));
 			SDL_RenderCopy(mach->renderer, texture, NULL, NULL);
 			SDL_RenderPresent(mach->renderer);
 		}
