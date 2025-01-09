@@ -3432,10 +3432,12 @@ show_binary(char* filename){
 
 void
 poll_input(machine* const mach){
-	memset(mach->keys, 0, 256);
 	while (SDL_PollEvent(&mach->event)){
 		if (mach->event.type == SDL_KEYDOWN){
 			mach->dev[KEYBOARD_DEVICE][mach->event.key.keysym.scancode] = 1;
+		}
+		else if (mach->event.type == SDL_KEYUP){
+			mach->dev[KEYBOARD_DEVICE][mach->event.key.keysym.scancode] = 0;
 		}
 	}
 }
@@ -3446,6 +3448,7 @@ setup_devices(machine* const mach){
 		mach->dev[i] = NULL;
 	}
 	mach->dev[KEYBOARD_DEVICE] = mach->keys;
+	memset(mach->keys, 0, 256);
 	mach->dev[SCREEN_DEVICE] = (byte*)mach->frame_buffer;
 }
 
