@@ -1,0 +1,18 @@
+screen_fill: ; pixel
+	MOV rA CR
+	SUS rA 0x7
+	LDI rC rA 0x0
+	EXT SCR_STAT
+	MUL rD rA rB
+	MOV rB rC 
+	LDS rA 0x0
+.loop:
+	EXT SCR_DRAW
+	ADS rA 0x1
+	CMP rA rD
+	JLT .loop
+	REI
+
+
+main: (screen_fill {0x00000000FF0000FF}) REI
+

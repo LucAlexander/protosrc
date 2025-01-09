@@ -69,7 +69,12 @@ MAP_DEF(OPCODE)
  *  MEM      a : request size -> a : address
  *  MEM_PROG a : request size -> a : address
  *  MEM_AUX  a : request size -> a : address
- *
+ *  KEY      a : key to query -> a : pressed bool
+ *  SCR_STAT                  -> a : w
+ *                               b : h
+ *                               c : bpp
+ *  SCR_DRAW a : address
+ *           b : pixel
 */
 
 typedef enum {
@@ -79,6 +84,8 @@ typedef enum {
 	EXT_MEM_PROG,
 	EXT_MEM_AUX,
 	EXT_KEY,
+	EXT_SCR_STAT,
+	EXT_SCR_DRAW,
 	EXT_COUNT
 } EXTERNAL_CALLS;
 

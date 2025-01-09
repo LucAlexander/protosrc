@@ -8,4 +8,4 @@ compile:
 
 
 clean:
-	rm *.rom
+	rm examples/*.rom
