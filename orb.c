@@ -4,6 +4,8 @@
 #include "orb.h"
 #include "hashmap.h"
 
+#include <SDL2/SDL.h>
+
 #pragma GCC diagnostic ignored "-Wsequence-point"
 
 MAP_IMPL(OPCODE)
@@ -96,7 +98,27 @@ MAP_IMPL(macro)
 #define SHOW_REG(mach, r)\
 	printf("                                   %s: %016lx (%lu) (%ld)\n\033[0m\033[1m", #r, mach->reg[r], mach->reg[r], mach->reg[r]);
 
-void show_registers(machine* const mach){
+void
+show_keyboard(machine* const mach){
+	printf("                                                                             \033[4mKB Device\033[0m\n");
+	for (word i = 0;i<256;++i){
+		printf("                                                                               ");
+		byte k = i+16;
+		for (;i<k;++i){
+			byte key = mach->dev[KEYBOARD_DEVICE][i];
+			if (key == 1){
+				printf("x");
+			}
+			else{
+				printf(" ");
+			}
+		}
+		printf("\n");
+	}
+}
+
+void
+show_registers(machine* const mach){
 	printf("                                   \033[4mCPU Registers\033[0m\n");
 	printf("\033[1;32m");
 	SHOW_REG(mach, IP);
@@ -121,7 +143,8 @@ printf("\n");
 	printf("\n");
 }
 
-void show_mem(machine* const mach){
+void
+show_mem(machine* const mach){
 	printf("\033[4mProgram / Stack\033[0m\n");
 	printf("\033[1;32m");
 	for (byte i = 0;i<INSTRUCTION_WIDTH*8;){
@@ -162,8 +185,11 @@ void show_mem(machine* const mach){
 	}
 }
 
-void show_machine(machine* const mach){
+void
+show_machine(machine* const mach){
 	printf("\033[2J");
+	printf("\033[H\033[1m");
+	show_keyboard(mach);
 	printf("\033[H\033[1m");
 	show_registers(mach);
 	printf("\033[H\033[1m");
@@ -426,8 +452,10 @@ void show_machine(machine* const mach){
 	int16_t offset = SHORT_LITERAL;\
 	mach->reg[IP] += offset;
 
-void interpret(machine* const mach, byte debug){
+void
+interpret(machine* const mach, byte debug){
 	while (1){
+		poll_input(mach);
 		if (debug){
 			show_machine(mach);
 			getc(stdin);
@@ -721,7 +749,8 @@ void interpret(machine* const mach, byte debug){
 	}
 }
 
-byte interpret_external(machine* const mach, byte ext){
+byte
+interpret_external(machine* const mach, byte ext){
 	switch (ext){
 	case EXT_OUT:
 		word str = mach->reg[R0];
@@ -758,6 +787,10 @@ byte interpret_external(machine* const mach, byte ext){
 			return 1;
 		}
 		return 0;
+	case EXT_KEY:
+		byte k = mach->reg[R0];
+		mach->reg[R0] = mach->dev[KEYBOARD_DEVICE][k];
+		return 1;
 	default:
 		fprintf(stderr, "External call unimplemented");
 		return 0;
@@ -776,7 +809,8 @@ byte interpret_external(machine* const mach, byte ext){
 		return v;\
 	}
 
-void setup_opcode_map(OPCODE_map* opmap){
+void
+setup_opcode_map(OPCODE_map* opmap){
 	OPCODE* ops = pool_request(opmap->mem, sizeof(OPCODE)*OPCODE_COUNT);
 	for (OPCODE i = 0;i<OPCODE_COUNT;++i){
 		ops[i] = i;
@@ -851,7 +885,8 @@ void setup_opcode_map(OPCODE_map* opmap){
 	OPCODE_map_insert(opmap, "EXR", ops++);
 }
 
-void setup_register_map(REGISTER_map* regmap){
+void
+setup_register_map(REGISTER_map* regmap){
 	REGISTER* regs = pool_request(regmap->mem, sizeof(REGISTER)*REGISTER_COUNT);
 	for (REGISTER i = 0;i<REGISTER_COUNT;++i){
 		regs[i] = i;
@@ -874,7 +909,8 @@ void setup_register_map(REGISTER_map* regmap){
 	REGISTER_map_insert(regmap, "rI", regs++);
 }
 
-void setup_partition_map(REG_PARTITION_map* partmap){
+void
+setup_partition_map(REG_PARTITION_map* partmap){
 	REG_PARTITION* parts = pool_request(partmap->mem, sizeof(REG_PARTITION)*PARTITION_COUNT);
 	for (REG_PARTITION i = 0;i<PARTITION_COUNT;++i){
 		parts[i] = i;
@@ -889,7 +925,8 @@ void setup_partition_map(REG_PARTITION_map* partmap){
 	REG_PARTITION_map_insert(partmap, "HI", parts++);
 }
 
-void setup_external_call_map(EXTERNAL_CALLS_map* extmap){
+void
+setup_external_call_map(EXTERNAL_CALLS_map* extmap){
 	EXTERNAL_CALLS* ext = pool_request(extmap->mem, sizeof(EXTERNAL_CALLS)*EXT_COUNT);
 	for (EXTERNAL_CALLS i = 0;i<EXT_COUNT;++i){
 		ext[i] = i;
@@ -899,9 +936,11 @@ void setup_external_call_map(EXTERNAL_CALLS_map* extmap){
 	EXTERNAL_CALLS_map_insert(extmap, "MEM", ext++);
 	EXTERNAL_CALLS_map_insert(extmap, "MEM_PROG", ext++);
 	EXTERNAL_CALLS_map_insert(extmap, "MEM_AUX", ext++);
+	EXTERNAL_CALLS_map_insert(extmap, "KEY", ext++);
 }
 
-byte whitespace(char c){
+byte
+whitespace(char c){
 	return (c=='\n' || c==' ' || c=='\r' || c == '\t');
 }
 
@@ -911,7 +950,8 @@ byte whitespace(char c){
 
 #define ENTRYPOINT_CODE "(main) EXT END"
 
-void nest_lex_cstr(compiler* const comp, char* text, word size){
+void
+nest_lex_cstr(compiler* const comp, char* text, word size){
 	compiler nested = {
 		.str.size = size,
 		.str.i = 0,
@@ -933,14 +973,16 @@ void nest_lex_cstr(compiler* const comp, char* text, word size){
 	comp->token_count = nested.token_count;
 }
 
-void impute_entrypoint(compiler* const comp){
+void
+impute_entrypoint(compiler* const comp){
 	word size = strlen(ENTRYPOINT_CODE);
 	char* text = pool_request(comp->mem, size);
 	strcpy(text, ENTRYPOINT_CODE);
 	nest_lex_cstr(comp, text, size);
 }
 
-byte issymbol(char c){
+byte
+issymbol(char c){
 	return (
 		(c > ' ' && c < '0') ||
 		(c > ';' && c < 'A') ||
@@ -950,7 +992,8 @@ byte issymbol(char c){
 	);
 }
 
-void lex_symbol(compiler* const comp, token* t){
+void
+lex_symbol(compiler* const comp, token* t){
 	t->type = SYMBOL_TOKEN;
 	while (comp->str.i < comp->str.size){
 		char c = comp->str.text[comp->str.i];
@@ -963,7 +1006,8 @@ void lex_symbol(compiler* const comp, token* t){
 	return;
 }
 
-byte lex_cstr(compiler* const comp, byte nested, byte noentry){
+byte
+lex_cstr(compiler* const comp, byte nested, byte noentry){
 	if (nested == 0){
 		comp->tokens = pool_request(comp->tok, sizeof(token));
 		comp->token_count = 0;
@@ -1240,7 +1284,8 @@ byte lex_cstr(compiler* const comp, byte nested, byte noentry){
 	return 0;
 }
 
-byte find_macros(compiler* const comp, pool* const aux){
+byte
+find_macros(compiler* const comp, pool* const aux){
 	byte found = 0;
 	word token_index = 0;
 	while (token_index < comp->token_count){
@@ -1393,7 +1438,8 @@ byte find_macros(compiler* const comp, pool* const aux){
 	return found;
 }
 
-byte replace_macros(compiler* const comp, pool* const aux){
+byte
+replace_macros(compiler* const comp, pool* const aux){
 	token* new = pool_request(comp->tok_swp, sizeof(token));
 	word token_index = 0;
 	word new_index = 0;
@@ -1455,7 +1501,8 @@ byte replace_macros(compiler* const comp, pool* const aux){
 	return 0;
 }
 
-word parse_register(compiler* const comp, word token_index, byte* r){
+word
+parse_register(compiler* const comp, word token_index, byte* r){
 	token t = comp->tokens[token_index];
 	ASSERT_LOCAL(t.type == REGISTER_TOKEN, PARSERR " Parsing register expected main register token" PARSERRFIX, t.text);
 	byte base = t.data.reg;
@@ -1470,7 +1517,8 @@ word parse_register(compiler* const comp, word token_index, byte* r){
 	return token_index;
 }
 
-void parse_string_bytes(compiler* const comp, word token_index, data_tree* data){
+void 
+parse_string_bytes(compiler* const comp, word token_index, data_tree* data){
 	data->type = BYTE_DATA;
 	token t = comp->tokens[token_index];
 	word remainder_offset = 8-(t.size % 8);
@@ -1484,7 +1532,8 @@ void parse_string_bytes(compiler* const comp, word token_index, data_tree* data)
 	}
 }
 
-word parse_call_block(compiler* const comp, bsms* const sublabels, word token_index, call_tree* data){
+word
+parse_call_block(compiler* const comp, bsms* const sublabels, word token_index, call_tree* data){
 	call_tree* last = data;
 	token t = comp->tokens[token_index];
 	while (token_index < comp->token_count){
@@ -1583,7 +1632,8 @@ word parse_call_block(compiler* const comp, bsms* const sublabels, word token_in
 	return 0;
 }
 
-word parse_byte_sequence(compiler* const comp, word token_index, data_tree* data){
+word
+parse_byte_sequence(compiler* const comp, word token_index, data_tree* data){
 	data->data.bytes.size = 0;
 	word initial_index = token_index;
 	while (token_index < comp->token_count){
@@ -1638,7 +1688,8 @@ word parse_byte_sequence(compiler* const comp, word token_index, data_tree* data
 	return token_index;
 }
 
-word parse_push_block(compiler* const comp, bsms* const sublabels, word token_index, data_tree* data){
+word
+parse_push_block(compiler* const comp, bsms* const sublabels, word token_index, data_tree* data){
 	data_tree* last = data;
 	while (token_index < comp->token_count){
 		token t = comp->tokens[token_index];
@@ -1694,7 +1745,8 @@ word parse_push_block(compiler* const comp, bsms* const sublabels, word token_in
 	return 0;
 }
 
-word parse_3reg(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code){
+word
+parse_3reg(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code){
 	byte a = 0;
 	byte b = 0;
 	byte c = 0;
@@ -1711,7 +1763,8 @@ word parse_3reg(compiler* const comp, OPCODE op, word instruction_index, word to
 	return token_index;
 }
 
-word parse_2reg(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code){
+word
+parse_2reg(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code){
 	byte a = 0;
 	byte b = 0;
 	token_index = parse_register(comp, token_index, &a);
@@ -1725,7 +1778,8 @@ word parse_2reg(compiler* const comp, OPCODE op, word instruction_index, word to
 	return token_index;
 }
 
-word parse_2reg_byte(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code){
+word
+parse_2reg_byte(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code){
 	byte a = 0;
 	byte b = 0;
 	token_index = parse_register(comp, token_index, &a);
@@ -1742,7 +1796,8 @@ word parse_2reg_byte(compiler* const comp, OPCODE op, word instruction_index, wo
 	return token_index;
 }
 
-word parse_reg_short(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code){
+word
+parse_reg_short(compiler* const comp, OPCODE op, word instruction_index, word token_index, code_tree* code){
 	byte a = 0;
 	token_index = parse_register(comp, token_index, &a);
 	ASSERT_ERR(0);
@@ -1756,7 +1811,8 @@ word parse_reg_short(compiler* const comp, OPCODE op, word instruction_index, wo
 	return token_index;
 }
 
-word parse_instruction_block(compiler* const comp, bsms* const sublabels, word token_index, code_tree* code){
+word
+parse_instruction_block(compiler* const comp, bsms* const sublabels, word token_index, code_tree* code){
 	token t = comp->tokens[token_index];
 	ASSERT_LOCAL(t.type == OPCODE_TOKEN, PARSERR " Expected opcode in parse instruction start" PARSERRFIX, t.text);
 	code->type = INSTRUCTION_BLOCK;
@@ -1919,7 +1975,8 @@ word parse_instruction_block(compiler* const comp, bsms* const sublabels, word t
 	return token_index;
 }
 
-word parse_code(compiler* const comp, bsms* const sublabels, word token_index, code_tree* ir, TOKEN terminator){
+word
+parse_code(compiler* const comp, bsms* const sublabels, word token_index, code_tree* ir, TOKEN terminator){
 	code_tree* last = ir;
 	while (token_index < comp->token_count){
 		token t = comp->tokens[token_index];
@@ -2037,7 +2094,8 @@ word parse_code(compiler* const comp, bsms* const sublabels, word token_index, c
 	return token_index;
 }
 
-byte block_scope_add_member(block_scope_map* const block, token t, code_tree* member){
+byte
+block_scope_add_member(block_scope_map* const block, token t, code_tree* member){
 	char* name = t.text;
 	word size = t.size;
 	char save = name[size];
@@ -2066,7 +2124,8 @@ byte block_scope_add_member(block_scope_map* const block, token t, code_tree* me
 	return 0;
 }
 
-code_tree* block_scope_check_member(block_scope_map* const block, token t, code_tree** ref){
+code_tree*
+block_scope_check_member(block_scope_map* const block, token t, code_tree** ref){
 	char* name = t.text;
 	word size = t.size;
 	char save = name[size];
@@ -2100,7 +2159,8 @@ code_tree* block_scope_check_member(block_scope_map* const block, token t, code_
 	return NULL;
 }
 
-void bsms_push(bsms* stack){
+void
+bsms_push(bsms* stack){
 	if (stack->size >= stack->capacity){
 		byte old_cap = stack->capacity;
 		stack->capacity *= 2;
@@ -2114,11 +2174,13 @@ void bsms_push(bsms* stack){
 	stack->size += 1;
 }
 
-void bsms_pop(bsms* stack){
+void
+bsms_pop(bsms* stack){
 	stack->size -= 1;
 }
 
-byte check_label_bucket(compiler* const comp, block_scope_map_bucket* bucket){
+byte
+check_label_bucket(compiler* const comp, block_scope_map_bucket* bucket){
 	if (bucket->tag == BUCKET_EMPTY){
 		return 0;
 	}
@@ -2132,7 +2194,8 @@ byte check_label_bucket(compiler* const comp, block_scope_map_bucket* bucket){
 	return 0;
 }
 
-byte remaining_labels(compiler* const comp, block_scope_map* const block){
+byte
+remaining_labels(compiler* const comp, block_scope_map* const block){
 	HASHMAP_ITERATE(i){
 		block_scope_map_bucket* bucket = &block->buckets[i];
 		check_label_bucket(comp, bucket);
@@ -2141,7 +2204,8 @@ byte remaining_labels(compiler* const comp, block_scope_map* const block){
 	return 0;
 }
 
-byte parse_tokens(compiler* const comp){
+byte
+parse_tokens(compiler* const comp){
 	word token_index = 0;
 	comp->ir = pool_request(comp->mem, sizeof(code_tree));
 	comp->ir->labeling = NOT_LABELED;
@@ -2174,7 +2238,8 @@ byte parse_tokens(compiler* const comp){
 		printf(" ");\
 	}
 
-byte show_call(compiler* const comp, call_tree* call, word depth){
+byte
+show_call(compiler* const comp, call_tree* call, word depth){
 	ASSERT_LOCAL(call != NULL, " call started as null\n");
 	byte first = 1;
 	while (call != NULL){
@@ -2222,7 +2287,8 @@ byte show_call(compiler* const comp, call_tree* call, word depth){
 	return 0;
 }
 
-byte show_data(compiler* const comp, data_tree* data, word depth){
+byte
+show_data(compiler* const comp, data_tree* data, word depth){
 	ASSERT_LOCAL(data != NULL, " push started as null\n");
 	while (data != NULL){
 		printf("\n");
@@ -2259,7 +2325,8 @@ byte show_data(compiler* const comp, data_tree* data, word depth){
 	return 0;
 }
 
-byte show_block(compiler* const comp, code_tree* code, word depth){
+byte
+show_block(compiler* const comp, code_tree* code, word depth){
 	ASSERT_LOCAL(code != NULL, " block started as null\n");
 	while (code != NULL){
 		printf("\n");
@@ -2357,7 +2424,8 @@ byte show_block(compiler* const comp, code_tree* code, word depth){
 	return 0;
 }
 
-void show_tokens(compiler* const comp){
+void
+show_tokens(compiler* const comp){
 	for (word i = 0;i<comp->token_count;++i){
 		printf("[ ");
 		switch (comp->tokens[i].type){
@@ -2442,7 +2510,8 @@ void show_tokens(compiler* const comp){
 	printf("\n");
 }
 
-code_tree* pregen_push(compiler* const comp, ltms* const sublines, code_tree* basic_block, data_tree* push){
+code_tree*
+pregen_push(compiler* const comp, ltms* const sublines, code_tree* basic_block, data_tree* push){
 	word instruction_index = basic_block->code.instruction_count*4;
 	while (push != NULL){
 		switch (push->type){
@@ -2603,7 +2672,8 @@ code_tree* pregen_push(compiler* const comp, ltms* const sublines, code_tree* ba
 	return basic_block;
 }
 
-code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* basic_block, call_tree* call){
+code_tree*
+pregen_call(compiler* const comp, ltms* const sublines, code_tree* basic_block, call_tree* call){
 	word instruction_index = basic_block->code.instruction_count*4;
 	basic_block->code.instructions[instruction_index++] = CAL;
 	basic_block->code.instructions[instruction_index++] = 0;
@@ -2786,7 +2856,8 @@ code_tree* pregen_call(compiler* const comp, ltms* const sublines, code_tree* ba
 	return next_block;
 }
 
-byte replace_call_arg(code_tree* jump, word jumpline, word line){
+byte
+replace_call_arg(code_tree* jump, word jumpline, word line){
 	word index = 2;
 	jump->code.instructions[index++] = (line & 0xFF00000000000000) >> 0x38;
 	jump->code.instructions[index++] = (line & 0xFF000000000000) >> 0x30;
@@ -2802,7 +2873,8 @@ byte replace_call_arg(code_tree* jump, word jumpline, word line){
 	return 0;
 }
 
-byte replace_call_dest(code_tree* jump, word jumpline, word line){
+byte
+replace_call_dest(code_tree* jump, word jumpline, word line){
 	word offset = 0;
 	byte neg = 0;
 	if (jumpline > line){
@@ -2892,7 +2964,8 @@ byte replace_call_dest(code_tree* jump, word jumpline, word line){
 	return changed;
 }
 
-void pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_block){
+void
+pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_block){
 	while (basic_block != NULL){
 		if (basic_block->labeling == LABELED){
 			comp->lines.changed[comp->lines.size-1] |= sublines->changed[sublines->size-1];
@@ -2930,7 +3003,8 @@ void pregenerate(compiler* const comp, ltms* const sublines, code_tree* basic_bl
 	}
 }
 
-void correct_offsets(compiler* const comp, ltms* const sublines, code_tree* basic_block){
+void
+correct_offsets(compiler* const comp, ltms* const sublines, code_tree* basic_block){
 	while (basic_block != NULL){
 		if (basic_block->labeling == LABELED){
 			comp->lines.changed[comp->lines.size-1] = sublines->changed[sublines->size-1];
@@ -2956,7 +3030,8 @@ void correct_offsets(compiler* const comp, ltms* const sublines, code_tree* basi
 	}
 }
 
-byte loc_thunk_add_member(ltms* const stack, token t){
+byte
+loc_thunk_add_member(ltms* const stack, token t){
 	loc_thunk_map* thunk = &stack->map[stack->size-1];
 	char* name = t.text;
 	word size = t.size;
@@ -2988,7 +3063,8 @@ byte loc_thunk_add_member(ltms* const stack, token t){
 	return 0;
 }
 
-void loc_thunk_check_member(ltms* const stack, token t, byte(*f)(code_tree*, word, word), code_tree* member){
+void
+loc_thunk_check_member(ltms* const stack, token t, byte(*f)(code_tree*, word, word), code_tree* member){
 	loc_thunk_map* thunk = &stack->map[stack->size-1];
 	char* name = t.text;
 	word size = t.size;
@@ -3028,7 +3104,8 @@ void loc_thunk_check_member(ltms* const stack, token t, byte(*f)(code_tree*, wor
 	return;
 }
 
-void ltms_push(ltms* stack){
+void
+ltms_push(ltms* stack){
 	if (stack->size >= stack->capacity){
 		byte old_cap = stack->capacity;
 		stack->capacity *= 2;
@@ -3044,12 +3121,14 @@ void ltms_push(ltms* stack){
 	stack->size += 1;
 }
 
-void ltms_pop(ltms* stack){
+void
+ltms_pop(ltms* stack){
 	stack->size -= 1;
 	stack->changed[stack->size-1] |= stack->changed[stack->size];
 }
 
-byte backpass(compiler* const comp){
+byte
+backpass(compiler* const comp){
 	{
 		comp->lines.map = pool_request(comp->mem, sizeof(loc_thunk_map)*PUSH_LABEL_SCOPE_LIMIT);
 		comp->lines.line = pool_request(comp->mem, sizeof(loc_thunk_map)*PUSH_LABEL_SCOPE_LIMIT);
@@ -3089,7 +3168,8 @@ byte backpass(compiler* const comp){
 	return 0;
 }
 
-void generate_code(compiler* const comp){
+void
+generate_code(compiler* const comp){
 	word i = 0;
 	code_tree* block = comp->ir;
 	while (block != NULL){
@@ -3101,7 +3181,8 @@ void generate_code(compiler* const comp){
 	}
 }
 
-byte flatten_macro_definitions(compiler* const comp){
+byte
+flatten_macro_definitions(compiler* const comp){
 	pool* aux = pool_request(comp->mem, sizeof(pool));
 	*aux = pool_alloc(AUX_SIZE, POOL_STATIC);
 	while (find_macros(comp, aux) == 1){
@@ -3124,9 +3205,9 @@ byte flatten_macro_definitions(compiler* const comp){
 	return 0;
 }
 
-//TODO text macros
 //TODO optimization pass
-byte compile_cstr(compiler* const comp, byte noentry){
+byte
+compile_cstr(compiler* const comp, byte noentry){
 	lex_cstr(comp, 0, noentry);
 	ASSERT_ERR(0);
 #ifdef ORB_DEBUG
@@ -3155,7 +3236,8 @@ byte compile_cstr(compiler* const comp, byte noentry){
 	return 0;
 }
 
-void compile_file(char* infile, char* outfile, byte noentry){
+void
+compile_file(char* infile, char* outfile, byte noentry){
 	FILE* fd = fopen(infile, "r");
 	if (fd == NULL){
 		fprintf(stderr, "File '%s' not found\n", infile);
@@ -3241,7 +3323,8 @@ void compile_file(char* infile, char* outfile, byte noentry){
 	pool_dealloc(&tok_swp);
 }
 
-void setup_registers(machine* const mach){
+void
+setup_registers(machine* const mach){
 	for (uint8_t r = 0;r<REGISTER_COUNT;++r){
 		for (uint8_t i = 0;i<4;++i){
 			mach->quar[(r*4)+i] = (uint16_t*)(&mach->reg[r])+(3-i);
@@ -3256,14 +3339,16 @@ void setup_registers(machine* const mach){
 	mach->reg[IP] = 0;
 }
 
-void flash_rom(machine* const mach, byte* buffer, uint64_t size){
+void
+flash_rom(machine* const mach, byte* buffer, uint64_t size){
 	for (uint64_t i = 0;i<size;++i){
 		mach->mem[PROGRAM_START+i] = buffer[i];
 	}
 	mach->mem_ptr = size + PROGRAM_START;
 }
 
-void demo(){
+void
+demo(){
 	machine mach;
 	setup_machine(&mach);
 	byte cc[] = {
@@ -3297,7 +3382,8 @@ void demo(){
 	return;
 }
 
-void show_binary(char* filename){
+void
+show_binary(char* filename){
 	FILE* fd = fopen(filename, "rb");
 	if (fd == NULL){
 		fprintf(stderr, "Unable to open file '%s'\n", filename);
@@ -3321,10 +3407,27 @@ void show_binary(char* filename){
 	free(buffer);
 }
 
-void setup_devices(machine* const mach){
+void
+poll_input(machine* const mach){
+	//memset(mach->keys, 0, 256);
+	while (SDL_PollEvent(&mach->event)){
+		if (mach->event.type == SDL_KEYDOWN){
+			mach->dev[KEYBOARD_DEVICE][mach->event.key.keysym.scancode] = 1;
+		}
+	}
 }
 
-void run_rom(char* filename, byte debug){
+void
+setup_devices(machine* const mach){
+	for (byte i = 0;i<DEVICE_COUNT;++i){
+		mach->dev[i] = NULL;
+	}
+	mach->dev[KEYBOARD_DEVICE] = mach->keys;
+	mach->dev[SCREEN_DEVICE] = (byte*)mach->frame_buffer;
+}
+
+void
+run_rom(char* filename, byte debug){
 	FILE* fd = fopen(filename, "rb");
 	if (fd == NULL){
 		fprintf(stderr, "Unable to open file '%s'\n", filename);
@@ -3343,17 +3446,25 @@ void run_rom(char* filename, byte debug){
 	flash_rom(&mach, buffer, size);
 	interpret(&mach, debug);
 	free(buffer);
+	SDL_DestroyWindow(mach.window);
+	SDL_DestroyRenderer(mach.renderer);
+	SDL_Quit();
 }
 
-void setup_machine(machine* const mach){
+void
+setup_machine(machine* const mach){
 	mach->mem_ptr = PROGRAM_START;
 	mach->aux_ptr = AUX_MEM_START;
 	mach->prog_ptr = PROG_MEM_START;
 	setup_registers(mach);
+	SDL_CreateWindowAndRenderer(SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_OPENGL, &mach->window, &mach->renderer);
+	SDL_SetWindowTitle(mach->window, "Orb");
+	SDL_Init(SDL_INIT_EVERYTHING);
 	setup_devices(mach);
 }
 
-int32_t main(int argc, char** argv){
+int32_t
+main(int argc, char** argv){
 	if (argc <= 1){
 		printf(" -h for help\n");
 		return 0;

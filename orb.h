@@ -5,6 +5,8 @@
 #include "string.h"
 #include "hashmap.h"
 
+#include <SDL2/SDL.h>
+
 //#define ORB_DEBUG
 
 #define READ_BUFFER_SIZE 0x10000000
@@ -34,7 +36,6 @@
 
 #define FULL_MEM_SIZE AUX_MEM_START + AUX_MEM_SIZE
 
-#define DEVICE_COUNT 0x8
 
 typedef uint64_t word;
 typedef uint8_t byte;
@@ -77,6 +78,7 @@ typedef enum {
 	EXT_MEM,
 	EXT_MEM_PROG,
 	EXT_MEM_AUX,
+	EXT_KEY,
 	EXT_COUNT
 } EXTERNAL_CALLS;
 
@@ -88,6 +90,15 @@ typedef enum {
 	REGISTER_COUNT
 } REGISTER;
 
+typedef enum {
+	KEYBOARD_DEVICE,
+	SCREEN_DEVICE,
+	DEVICE_COUNT
+} DEVICE_LOCATION;
+
+#define SCREEN_WIDTH 320
+#define SCREEN_HEIGHT 180
+
 typedef struct machine {
 	word reg[REGISTER_COUNT];
 	uint16_t* quar[REGISTER_COUNT*4];
@@ -96,6 +107,11 @@ typedef struct machine {
 	byte* hi[REGISTER_COUNT];
 	byte mem[FULL_MEM_SIZE];
 	byte* dev[DEVICE_COUNT];
+	SDL_Window* window;
+	SDL_Renderer* renderer;
+	SDL_Event event;
+	byte keys[256];
+	uint32_t frame_buffer[SCREEN_WIDTH*SCREEN_HEIGHT];
 	word mem_ptr;
 	word aux_ptr;
 	word prog_ptr;
@@ -358,6 +374,7 @@ typedef struct {
 void show_registers(machine* const mach);
 void show_mem(machine* const mach);
 void show_machine(machine* const mach);
+void poll_input(machine* const mach);
 void interpret(machine* const mach, byte debug);
 byte interpret_external(machine* const mach, byte ext);
 void setup_opcode_map(OPCODE_map* opmap);
