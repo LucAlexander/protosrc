@@ -1,0 +1,13 @@
+main:
+	"\e[1;34mhello world\n\e[0m"
+	MOV rC SP
+	ADS rC 0x1
+	LDS rB 0x18
+.loop:
+	LDS rA 0x4
+	EXT KEY
+	CMS rA 0x1
+	JNE .loop
+	MOV rA rC
+	EXT OUT
+	REI
