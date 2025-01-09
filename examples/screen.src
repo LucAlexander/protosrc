@@ -1,10 +1,10 @@
 screen_fill: ; pixel
 	MOV rA CR
 	SUS rA 0x7
-	LDI rC rA 0x0
+	LDI rE rA 0x0
 	EXT SCR_STAT
 	MUL rD rA rB
-	MOV rB rC 
+	MOV rB rE 
 	LDS rA 0x0
 .loop:
 	EXT SCR_DRAW
@@ -13,6 +13,17 @@ screen_fill: ; pixel
 	JLT .loop
 	REI
 
+main:
+	LDS rF 0x0
+.loop:
+	(screen_fill {0x00000000FFFFFFFF})
+	(screen_fill {0x00000000FF0000FF})
+	(screen_fill {0x0000000000FF00FF})
+	(screen_fill {0x000000000000FFFF})
+	(screen_fill {0x00000000000000FF})
+	ADS rF 0x1
+	CMS rF 0xFF
+	JLT .loop
+	REI
 
-main: (screen_fill {0x00000000FF0000FF}) REI
-
+	

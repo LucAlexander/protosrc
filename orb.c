@@ -814,7 +814,7 @@ interpret_external(machine* const mach, byte ext){
 		mach->reg[R2] = 4;
 		return 1;
 	case EXT_SCR_DRAW:
-		mach->frame_buffer[mach->reg[R0]] = (uint32_t)(mach->reg[1] & 0xFFFFFFFF);
+		mach->frame_buffer[mach->reg[R0]] = (uint32_t)(mach->reg[R1] & 0xFFFFFFFF);
 		return 1;
 	default:
 		fprintf(stderr, "External call unimplemented");
