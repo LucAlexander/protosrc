@@ -4,7 +4,7 @@ run:
 	./orb
 
 compile:
-	gcc -g -Wall -o orb orb.c pool.c -lSDL2 -lSDL2main
+	gcc -O3 -o orb orb.c pool.c -lSDL2 -lSDL2main
 
 
 clean:
