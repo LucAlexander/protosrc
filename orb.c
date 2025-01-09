@@ -461,13 +461,10 @@ interpret(machine* const mach, byte debug){
         SCREEN_WIDTH,
         SCREEN_HEIGHT
 	);
+	word clock = 0;
 	while (1){
-		poll_input(mach);
-		if (debug){
-			show_machine(mach);
-			getc(stdin);
-		}
-		{
+		if (clock++ % 10000 == 0){
+			poll_input(mach);
 			int32_t texture_pitch = 0;
 			void* texture_pixels = NULL;
 			SDL_LockTexture(texture, NULL, &texture_pixels, &texture_pitch);
@@ -475,6 +472,10 @@ interpret(machine* const mach, byte debug){
 			SDL_UnlockTexture(texture);
 			SDL_RenderCopy(mach->renderer, texture, NULL, NULL);
 			SDL_RenderPresent(mach->renderer);
+		}
+		if (debug){
+			show_machine(mach);
+			getc(stdin);
 		}
 		word ip = PROGRAM_START+(mach->reg[IP]*INSTRUCTION_WIDTH);
 		byte op = mach->mem[ip];
@@ -813,7 +814,7 @@ interpret_external(machine* const mach, byte ext){
 		mach->reg[R2] = 4;
 		return 1;
 	case EXT_SCR_DRAW:
-		mach->frame_buffer[mach->reg[R0]] = mach->reg[1];
+		mach->frame_buffer[mach->reg[R0]] = (uint32_t)(mach->reg[1] & 0xFFFFFFFF);
 		return 1;
 	default:
 		fprintf(stderr, "External call unimplemented");
