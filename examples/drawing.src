@@ -1,0 +1,91 @@
+frame_buffer_fill: ; buffer pixel
+	MOV rA CR
+	SUS rA 0x7
+	LDI rF rA 0x0
+	SUS rA 0x8
+	LDI rE rA 0x0
+	EXT SCR_STAT
+	MUL rD rA rB
+	MOV rB rE 
+	LDS rA 0x0
+.loop:
+	STB rB D rF 0x0
+	ADS rA 0x1
+	ADS rF 0x4
+	CMP rA rD
+	JLT .loop
+	REI
+
+draw_rect: ; buffer x y w h
+	EXT SCR_STAT
+	PSH rA
+	MOV rA CR
+	SUS rA 0x7 LDI rG rA 0x0 ; buffer
+	SUS rA 0x8 LDI rF rA 0x0 ; x
+	SUS rA 0x8 LDI rC rA 0x0 ; y
+	SUS rA 0x8 LDI rD rA 0x0 ; w
+	SUS rA 0x8 LDI rE rA 0x0 ; h
+	;ADD rD rD rF ; w + x
+	ADD rE rE rC ; h + y
+	MOV rA rF
+	POP rB
+	MUL rA rB rC ; linear x
+	PSH rB
+	ADD rD rD rA ; linear x + w
+	{0x00000000FFFF00FF}
+	POP rB
+.row:
+	CMP rA rD
+	JGE .reset
+	STB rB D rG 0x0
+	ADS rA 0x1
+	ADS rG 0x4
+	JMP .row
+.reset:
+	POP rB
+	ADS rC 0x1   ; adjust y 
+	MUL rA rB rC ; new linear x
+	ADD rD rD rB ; incease target by scr_w
+	PSH rB
+	CMP rC rE
+	JLT .row
+	REI
+
+frame_buffer: ; -> address
+	EXT SCR_STAT
+	MUL rA rA rB
+	MUS rA 0x4
+	EXT MEM
+	RET rA
+
+flush_frame_buffer: ; buffer
+	MOV rA CR
+	SUS rA 0x7 LDI rG rA 0x0 ; buffer
+	EXT SCR_STAT
+	MOV rF rB
+	MUS rF 0x4 ; length of buffer
+	LDS rE 0x0
+.loop:
+	LDI rB D rG 0x0
+	ADS rG 0x4
+	ADS rE 0x4
+	EXT SCR_DRAW
+	CMP rE rF
+	JLT .loop
+	REI
+
+main:
+	(frame_buffer)
+.main_loop:
+	POP rA PSH rA
+	(frame_buffer_fill rA 0x0)	
+	POP rA PSH rA
+	(draw_rect rA 0x20 0x20 0x20 0x20)
+	POP rA PSH rA
+	(flush_frame_buffer rA)
+	LDS rA 0x4
+	EXT KEY
+	CMS rA 0x1
+	JNE .main_loop
+	REI
+	

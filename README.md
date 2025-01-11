@@ -1,4 +1,6 @@
 
+This is a working prototype
+
 ```asm
 
 main:
@@ -113,6 +115,7 @@ main:
  '----------'--------'--------'--------'-------------------'
 ```
 
+Calling convention abstraction
 ```asm
 (procedure 0xCAFE rA {0xDEAFBEEFFACECAFE}) 
 
@@ -123,6 +126,27 @@ PSS 0xCAFE
 PSH rA
 {0xDEADBEEFFACECAFE}
 BNC procedure
+
+```
+
+Macros
+```asm
+
+; definition
+
+if condition consequent = [
+    (condition)
+    POP rA
+    CMS rA 0
+    JEQ 0x3
+    CAL
+    BNE consequent
+
+; use
+
+[if (less rA rB) exit]
+
+]
 
 ```
 
