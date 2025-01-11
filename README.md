@@ -141,12 +141,12 @@ if condition consequent = [
     JEQ 0x3
     CAL
     BNE consequent
+]
 
 ; use
 
-[if (less rA rB) exit]
 
-]
+[if (less rA rB) exit]
 
 ```
 
